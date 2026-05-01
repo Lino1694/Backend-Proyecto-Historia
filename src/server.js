@@ -1,0 +1,102 @@
+const express = require('express');
+const cors = require('cors');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpecs = require('./config/swagger');
+const { initializeDatabase } = require('./config/database');
+require('dotenv').config();
+
+const userRoutes = require('./routes/userRoutes');
+const xpRoutes = require('./routes/xpRoutes');
+const retosRoutes = require('./routes/retosRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
+const teacherRoutes = require('./routes/teacherRoutes');
+const leccionesRoutes = require('./routes/leccionesRoutes');
+const ollamaRoutes = require('./routes/ollamaRoutes');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middlewares
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Swagger Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: "API Historia Lima - Documentación"
+}));
+
+// Routes
+app.use('/api/users', userRoutes);
+app.use('/api/xp', xpRoutes);
+app.use('/api/retos', retosRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/teacher', teacherRoutes);
+
+// Servir archivos estáticos desde uploads
+app.use('/uploads', express.static('uploads'));
+app.use('/api/lecciones', leccionesRoutes);
+app.use('/api/ollama', ollamaRoutes);
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: '🚀 API Historia Lima funcionando correctamente',
+    version: '2.0.0',
+    features: ['Usuarios', 'XP', 'Niveles', 'Ranking', 'Insignias', 'Retos', 'Lecciones', 'Ollama AI'],
+    documentation: 'http://localhost:' + PORT + '/api-docs'
+  });
+});
+
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Ruta no encontrada' });
+});
+
+// Error Handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ 
+    error: 'Error interno del servidor',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// Iniciar servidor con inicialización de base de datos
+const startServer = async () => {
+  try {
+    console.log('\n' + '='.repeat(60));
+    console.log('🎮 HISTORIA LIMA - Backend API con Sistema de XP');
+    console.log('='.repeat(60));
+    
+    // Inicializar base de datos (crear tablas si no existen)
+    await initializeDatabase();
+
+    // Iniciar servidor
+    app.listen(PORT, () => {
+      console.log('\n' + '='.repeat(60));
+      console.log(`🌐 Servidor corriendo en http://localhost:${PORT}`);
+      console.log(`📚 Documentación disponible en http://localhost:${PORT}/api-docs`);
+      console.log(`🏆 Sistema de XP activado`);
+      console.log('='.repeat(60) + '\n');
+    });
+  } catch (error) {
+    console.error('❌ Error al iniciar el servidor:', error);
+    process.exit(1);
+  }
+};
+
+// Manejo de errores no capturados
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Error no manejado:', err);
+  process.exit(1);
+});
+
+process.on('SIGTERM', () => {
+  console.log('👋 SIGTERM recibido. Cerrando servidor...');
+  process.exit(0);
+});
+
+// Iniciar la aplicación
+startServer();
