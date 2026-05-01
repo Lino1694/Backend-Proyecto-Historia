@@ -32,26 +32,25 @@ const getStudentsProgress = async (req, res) => {
     // Para cada estudiante, calcular el progreso
     const studentsWithProgress = [];
     for (const student of studentsResult.rows) {
-      // Calcular progreso por tema directamente desde las tablas
-      const progressQuery = `
-        SELECT l.tema,
-               COUNT(lc.id) as lecciones_completadas,
-               COUNT(DISTINCT l.id) as total_lecciones,
-               ROUND(COALESCE((COUNT(lc.id) * 100.0 / NULLIF(COUNT(DISTINCT l.id), 0)), 0), 2) as progreso
-        FROM lecciones l
-        LEFT JOIN lecciones_completadas lc ON l.id = lc.leccion_id AND lc.estudiante_id = $1
-        WHERE l.tema IS NOT NULL AND l.tema != ''
-        GROUP BY l.tema
-        ORDER BY l.tema
-      `;
+      // Calcular progreso general basado en lecciones completadas del total disponible
+      const totalLessonsQuery = await pool.query('SELECT COUNT(*) as total FROM lecciones');
+      const totalLessons = parseInt(totalLessonsQuery.rows[0].total);
 
-      const progressResult = await pool.query(progressQuery, [student.id]);
-      const progresoPorTema = progressResult.rows;
+      const completedLessonsQuery = await pool.query(
+        'SELECT COUNT(*) as completadas FROM lecciones_completadas WHERE estudiante_id = $1',
+        [student.id]
+      );
+      const completedLessons = parseInt(completedLessonsQuery.rows[0].completadas);
 
-      // Calcular progreso general como promedio
-      const progresoGeneral = progresoPorTema.length > 0
-        ? Math.round(progresoPorTema.reduce((sum, tema) => sum + parseFloat(tema.progreso || 0), 0) / progresoPorTema.length)
+      const progresoGeneral = totalLessons > 0
+        ? Math.round((completedLessons / totalLessons) * 100)
         : 0;
+
+      // Para progreso por tema, usar un tema genérico o calcular por lecciones individuales
+      const progresoPorTema = [{
+        tema: 'General',
+        progreso: progresoGeneral.toString()
+      }];
 
       // Verificar si está activo (actividad en últimas 2 horas)
       const dosHorasAtras = new Date(Date.now() - 2 * 60 * 60 * 1000);
@@ -188,7 +187,200 @@ const getStudentProgress = async (req, res) => {
   }
 };
 
+// Obtener reportes de rendimiento por lección
+const getLeccionReports = async (req, res) => {
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden acceder a los reportes'
+      });
+    }
+
+    // Obtener todas las lecciones
+    const lessonsQuery = 'SELECT id, titulo FROM lecciones ORDER BY titulo';
+    const lessons = await pool.query(lessonsQuery);
+
+    // Obtener todos los estudiantes
+    const studentsQuery = 'SELECT id, nombre, avatar_url FROM usuarios WHERE role = $1 ORDER BY nombre';
+    const students = await pool.query(studentsQuery, ['student']);
+
+    const reports = [];
+
+    for (const lesson of lessons.rows) {
+      // Calcular estadísticas para cada lección
+      const completionsQuery = `
+        SELECT lc.puntuacion, lc.total_preguntas, u.nombre, u.avatar_url
+        FROM lecciones_completadas lc
+        JOIN usuarios u ON lc.estudiante_id = u.id
+        WHERE lc.leccion_id = $1 AND u.role = $2
+      `;
+      const completions = await pool.query(completionsQuery, [lesson.id, 'student']);
+
+      const totalEstudiantes = students.rows.length;
+      const estudiantesCompletaron = completions.rows.length;
+
+      // Calcular promedio de puntuaciones
+      let promedioPuntuacion = 0;
+      if (completions.rows.length > 0) {
+        const totalScore = completions.rows.reduce((sum, comp) => {
+          const score = comp.total_preguntas > 0 ? (comp.puntuacion / comp.total_preguntas) * 100 : 0;
+          return sum + score;
+        }, 0);
+        promedioPuntuacion = Math.round(totalScore / completions.rows.length);
+      }
+
+      // Calcular tasa de completitud
+      const tasaCompletitud = totalEstudiantes > 0 ? Math.round((estudiantesCompletaron / totalEstudiantes) * 100) : 0;
+
+      // Preparar lista de estudiantes con su estado
+      const estudiantes = students.rows.map(student => {
+        const completion = completions.rows.find(c => c.nombre === student.nombre);
+        let estado = 'no_iniciado';
+        let puntuacion = 0;
+
+        if (completion) {
+          estado = 'completado';
+          puntuacion = completion.total_preguntas > 0 ? Math.round((completion.puntuacion / completion.total_preguntas) * 100) : 0;
+        }
+
+        return {
+          nombre: student.nombre,
+          avatar_url: student.avatar_url,
+          puntuacion: puntuacion,
+          estado: estado
+        };
+      });
+
+      // Por ahora, no implementaremos preguntas difíciles ya que requeriría más complejidad
+      const preguntasDificiles = [];
+
+      reports.push({
+        id: lesson.id,
+        titulo: lesson.titulo,
+        promedio_puntuacion: promedioPuntuacion,
+        tasa_completitud: tasaCompletitud,
+        total_estudiantes: totalEstudiantes,
+        estudiantes: estudiantes,
+        preguntas_dificiles: preguntasDificiles
+      });
+    }
+
+    res.json(reports);
+
+  } catch (error) {
+    console.error('Error al obtener reportes de lecciones:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Obtener detalles de rendimiento de una lección específica
+const getLeccionReportDetail = async (req, res) => {
+  const { leccion_id } = req.params;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden acceder a los reportes'
+      });
+    }
+
+    // Obtener información de la lección
+    const lessonQuery = 'SELECT id, titulo, descripcion FROM lecciones WHERE id = $1';
+    const lesson = await pool.query(lessonQuery, [leccion_id]);
+
+    if (lesson.rows.length === 0) {
+      return res.status(404).json({ error: 'Lección no encontrada' });
+    }
+
+    const leccion = lesson.rows[0];
+
+    // Obtener todas las completaciones de esta lección
+    const completionsQuery = `
+      SELECT lc.*, u.nombre, u.avatar_url, lc.completado_at as fecha_completado
+      FROM lecciones_completadas lc
+      JOIN usuarios u ON lc.estudiante_id = u.id
+      WHERE lc.leccion_id = $1 AND u.role = $2
+      ORDER BY lc.completado_at DESC
+    `;
+    const completions = await pool.query(completionsQuery, [leccion_id, 'student']);
+
+    // Calcular estadísticas generales
+    const totalEstudiantes = completions.rows.length;
+    let promedioGeneral = 0;
+    let tiempoPromedio = 0; // Por ahora no calculamos tiempo
+
+    if (totalEstudiantes > 0) {
+      const totalScore = completions.rows.reduce((sum, comp) => {
+        const score = comp.total_preguntas > 0 ? (comp.puntuacion / comp.total_preguntas) * 100 : 0;
+        return sum + score;
+      }, 0);
+      promedioGeneral = Math.round(totalScore / totalEstudiantes);
+    }
+
+    // Calcular distribución de puntuaciones
+    const distribucion = {
+      excelente: 0, // 80-100
+      bueno: 0,     // 60-79
+      regular: 0,   // 40-59
+      deficiente: 0 // 0-39
+    };
+
+    completions.rows.forEach(comp => {
+      const score = comp.total_preguntas > 0 ? (comp.puntuacion / comp.total_preguntas) * 100 : 0;
+      if (score >= 80) distribucion.excelente++;
+      else if (score >= 60) distribucion.bueno++;
+      else if (score >= 40) distribucion.regular++;
+      else distribucion.deficiente++;
+    });
+
+    // Preparar lista de estudiantes con detalles
+    const estudiantes = completions.rows.map(comp => ({
+      id: comp.estudiante_id,
+      nombre: comp.nombre,
+      avatar_url: comp.avatar_url,
+      puntuacion: comp.total_preguntas > 0 ? Math.round((comp.puntuacion / comp.total_preguntas) * 100) : 0,
+      tiempo_completado: 0, // Por ahora no calculamos tiempo
+      fecha_completado: comp.fecha_completado,
+      respuestas: [] // Por ahora no tenemos detalle de respuestas individuales
+    }));
+
+    // Análisis de preguntas (simplificado)
+    const analisisPreguntas = [];
+
+    const estadisticas = {
+      promedio_general: promedioGeneral,
+      tasa_completitud: totalEstudiantes, // Simplificado
+      tiempo_promedio: tiempoPromedio,
+      distribucion_puntuaciones: distribucion
+    };
+
+    res.json({
+      leccion: {
+        id: leccion.id,
+        titulo: leccion.titulo,
+        descripcion: leccion.descripcion
+      },
+      estadisticas: estadisticas,
+      estudiantes: estudiantes,
+      analisis_preguntas: analisisPreguntas
+    });
+
+  } catch (error) {
+    console.error('Error al obtener detalles de reporte de lección:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
 module.exports = {
   getStudentsProgress,
-  getStudentProgress
+  getStudentProgress,
+  getLeccionReports,
+  getLeccionReportDetail
 };
