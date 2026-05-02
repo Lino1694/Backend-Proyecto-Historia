@@ -4,6 +4,7 @@ const { authenticateToken } = require('../middleware/auth');
 const {
   crearReto,
   getRetosActivos,
+  getRetosPorCategoria,
   unirseReto,
   completarReto,
   getPreguntasReto,
@@ -36,10 +37,13 @@ const {
  *               descripcion:
  *                 type: string
  *                 description: Descripción opcional del reto
- *               tipo:
- *                 type: string
- *                 enum: [individual, competition]
- *                 description: Tipo de reto
+  *               tipo:
+  *                 type: string
+  *                 enum: [individual, competition]
+  *                 description: Tipo de reto
+  *               categoria:
+  *                 type: string
+  *                 description: Categoría del reto (opcional)
  *               xp_recompensa:
  *                 type: integer
  *                 description: Puntos XP que otorga el reto
@@ -102,6 +106,80 @@ const {
  */
 /**
  * @swagger
+ * /api/retos/categorias:
+ *   get:
+ *     summary: Obtener retos organizados por categorías
+ *     tags: [Retos]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Retos organizados por categorías
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 "Avanzando en la Historia":
+ *                   type: object
+ *                   properties:
+ *                     "Cultura Inca":
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           titulo:
+ *                             type: string
+ *                           descripcion:
+ *                             type: string
+ *                           tipo:
+ *                             type: string
+ *                             enum: [individual, competition]
+ *                           categoria:
+ *                             type: string
+ *                           xp_recompensa:
+ *                             type: integer
+ *                           participantes:
+ *                             type: integer
+ *                           estado:
+ *                             type: string
+ *                             enum: [active, completed]
+ *                           fecha_fin:
+ *                             type: string
+ *                             format: date
+ *                           creador_id:
+ *                             type: integer
+ *                     "Caral - La primera Ciudad":
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Reto'
+ *                     "El Virreinato en el Perú":
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Reto'
+ *                     "La Independencia":
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Reto'
+ *                     "La Conquista de Perú":
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Reto'
+ *                     "Retos Personalizados":
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Reto'
+ *       500:
+ *         description: Error del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+/**
+ * @swagger
  * /api/retos/activos:
  *   get:
  *     summary: Obtener retos activos
@@ -146,6 +224,7 @@ const {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+router.get('/categorias', authenticateToken, getRetosPorCategoria);
 router.get('/activos', authenticateToken, getRetosActivos);
 
 /**

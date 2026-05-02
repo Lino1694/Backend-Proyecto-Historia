@@ -2,7 +2,7 @@ const { pool } = require('../config/database');
 
 // Crear un nuevo reto
 const crearReto = async (req, res) => {
-  const { titulo, descripcion, tipo, xp_recompensa, fecha_fin, preguntas, max_intentos } = req.body;
+  const { titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, preguntas, max_intentos } = req.body;
   const userId = req.user.id;
   const userRole = req.user.role;
 
@@ -126,10 +126,10 @@ const crearReto = async (req, res) => {
       await client.query('BEGIN');
 
       // Insertar reto
-      console.log('Insertando reto en BD:', { titulo, fecha_fin, xp_recompensa });
+      console.log('Insertando reto en BD:', { titulo, categoria, fecha_fin, xp_recompensa });
       const retoResult = await client.query(
-        'INSERT INTO retos (titulo, descripcion, tipo, xp_recompensa, fecha_fin, max_intentos, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-        [titulo, descripcion || null, tipo, xp_recompensa, fecha_fin, max_intentos || null, userId]
+        'INSERT INTO retos (titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, max_intentos, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
+        [titulo, descripcion || null, tipo, categoria || null, xp_recompensa, fecha_fin, max_intentos || null, userId]
       );
       const retoId = retoResult.rows[0].id;
       console.log('Reto creado con ID:', retoId);
@@ -185,7 +185,69 @@ const crearReto = async (req, res) => {
   }
 };
 
-// Obtener retos activos
+// Obtener retos organizados por categorías
+const getRetosPorCategoria = async (req, res) => {
+  try {
+    console.log('=== OBTENIENDO RETOS POR CATEGORÍA ===');
+
+    const retos = await pool.query(`
+      SELECT
+        r.id,
+        r.titulo,
+        r.descripcion,
+        r.tipo,
+        r.categoria,
+        r.xp_recompensa,
+        COUNT(rp.usuario_id) as participantes,
+        CASE WHEN r.fecha_fin >= CURRENT_DATE THEN 'active' ELSE 'completed' END as estado,
+        r.fecha_fin,
+        r.created_by as creador_id,
+        r.created_at
+      FROM retos r
+      LEFT JOIN reto_participantes rp ON r.id = rp.reto_id
+      GROUP BY r.id
+      ORDER BY r.categoria, r.created_at DESC
+    `);
+
+    // Organizar por categorías
+    const categorias = {
+      "Avanzando en la Historia": {
+        "Cultura Inca": [],
+        "Caral - La primera Ciudad": [],
+        "El Virreinato en el Perú": [],
+        "La Independencia": [],
+        "La Conquista de Perú": [],
+        "Retos Personalizados": []
+      }
+    };
+
+    retos.rows.forEach(reto => {
+      const categoria = reto.categoria;
+      if (categoria && categoria.startsWith("Avanzando en la Historia")) {
+        const subcategoria = categoria.replace("Avanzando en la Historia - ", "");
+        if (categorias["Avanzando en la Historia"][subcategoria]) {
+          categorias["Avanzando en la Historia"][subcategoria].push(reto);
+        } else {
+          // Si no existe la subcategoría, agregarla
+          categorias["Avanzando en la Historia"][subcategoria] = [reto];
+        }
+      } else {
+        // Retos sin categoría o de otras categorías
+        if (!categorias["Otros"]) {
+          categorias["Otros"] = [];
+        }
+        categorias["Otros"].push(reto);
+      }
+    });
+
+    res.json(categorias);
+  } catch (error) {
+    console.error('Error al obtener retos por categoría:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Obtener retos activos (para compatibilidad)
 const getRetosActivos = async (req, res) => {
   try {
     console.log('=== OBTENIENDO RETOS ACTIVOS ===');
@@ -510,85 +572,112 @@ const responderReto = async (req, res) => {
 
     let correctas = 0;
     const total = preguntas.rows.length;
+    let xpGanadoIndividual = 0;
 
-    // Verificar cada respuesta
-    for (let i = 0; i < respuestas.length; i++) {
-      const respuesta = respuestas[i];
-      const pregunta = preguntas.rows.find(p => p.id == respuesta.pregunta_id);
+    // Iniciar transacción para todas las operaciones
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-      if (!pregunta) {
-        return res.status(400).json({
-          error: `Pregunta ${respuesta.pregunta_id} no pertenece a este reto`
-        });
-      }
+      // Verificar cada respuesta
+      for (let i = 0; i < respuestas.length; i++) {
+        const respuesta = respuestas[i];
+        const pregunta = preguntas.rows.find(p => p.id == respuesta.pregunta_id);
 
-      let esCorrecta = false;
-
-      if (pregunta.tipo_pregunta === 'multiple_choice') {
-        // Para múltiple choice, respuesta es el índice
-        const indice = parseInt(respuesta.respuesta);
-        const indiceCorrecto = parseInt(pregunta.respuesta_correcta);
-        esCorrecta = !isNaN(indice) && indice === indiceCorrecto;
-      } else if (pregunta.tipo_pregunta === 'fill_blank') {
-        // Para completar espacios, respuesta es el texto
-        esCorrecta = respuesta.respuesta.trim().toLowerCase() === pregunta.respuesta_correcta.trim().toLowerCase();
-      } else if (pregunta.tipo_pregunta === 'drag_drop') {
-        // Para drag_drop, respuesta es un objeto con el mapping zona->elemento
-        try {
-          const respuestaMapping = typeof respuesta.respuesta === 'string' ? JSON.parse(respuesta.respuesta) : respuesta.respuesta;
-          // El mapping correcto está en opciones.zonas_destino
-          const correctMapping = {};
-          pregunta.opciones.zonas_destino.forEach(zona => {
-            correctMapping[zona.id] = zona.elemento_correcto_id;
+        if (!pregunta) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: `Pregunta ${respuesta.pregunta_id} no pertenece a este reto`
           });
-          esCorrecta = Object.keys(correctMapping).every(zonaId => respuestaMapping[zonaId] === correctMapping[zonaId]);
-        } catch (error) {
-          esCorrecta = false;
+        }
+
+        let esCorrecta = false;
+
+        if (pregunta.tipo_pregunta === 'multiple_choice') {
+          // Para múltiple choice, respuesta es el índice
+          const indice = parseInt(respuesta.respuesta);
+          const indiceCorrecto = parseInt(pregunta.respuesta_correcta);
+          esCorrecta = !isNaN(indice) && indice === indiceCorrecto;
+        } else if (pregunta.tipo_pregunta === 'fill_blank') {
+          // Para completar espacios, respuesta es el texto
+          esCorrecta = respuesta.respuesta.trim().toLowerCase() === pregunta.respuesta_correcta.trim().toLowerCase();
+        } else if (pregunta.tipo_pregunta === 'drag_drop') {
+          // Para drag_drop, respuesta es un objeto con el mapping zona->elemento
+          try {
+            const respuestaMapping = typeof respuesta.respuesta === 'string' ? JSON.parse(respuesta.respuesta) : respuesta.respuesta;
+            // El mapping correcto está en opciones.zonas_destino
+            const correctMapping = {};
+            pregunta.opciones.zonas_destino.forEach(zona => {
+              correctMapping[zona.id] = zona.elemento_correcto_id;
+            });
+            esCorrecta = Object.keys(correctMapping).every(zonaId => respuestaMapping[zonaId] === correctMapping[zonaId]);
+          } catch (error) {
+            esCorrecta = false;
+          }
+        }
+
+        if (esCorrecta) {
+          correctas++;
+          xpGanadoIndividual += 4; // +4 XP por respuesta correcta
+
+          // Otorgar XP por respuesta correcta individual
+          await client.query(
+            'INSERT INTO historial_xp (usuario_id, cantidad, tipo, descripcion, actividad_id) VALUES ($1, $2, $3, $4, $5)',
+            [userId, 4, 'respuesta_correcta', `Respuesta correcta en reto ${id}, pregunta ${pregunta.id}`, null]
+          );
         }
       }
 
-      if (esCorrecta) {
-        correctas++;
+      // Actualizar XP total por respuestas individuales
+      if (xpGanadoIndividual > 0) {
+        await client.query(
+          'UPDATE usuarios SET xp_total = xp_total + $1 WHERE id = $2',
+          [xpGanadoIndividual, userId]
+        );
       }
-    }
 
-    // Si todas son correctas, completar el reto
-    let xpGanado = 0;
-    if (correctas === total) {
-      const xpRecompensa = participacion.rows[0].xp_recompensa;
-
-      // Iniciar transacción
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
+      // Si todas son correctas, completar el reto y dar bonus
+      let xpGanado = xpGanadoIndividual; // Incluir XP de respuestas individuales
+      if (correctas === total) {
+        const xpBonus = 20; // +20 por completar perfectamente
+        const xpTotalGanado = xpGanadoIndividual + xpBonus;
 
         // Marcar como completado
         await client.query(
           'UPDATE reto_participantes SET completed_at = CURRENT_TIMESTAMP, xp_ganado = $1 WHERE id = $2',
-          [xpRecompensa, Number(participacion.rows[0].id)]
+          [xpTotalGanado, Number(participacion.rows[0].id)]
         );
 
-        // Actualizar XP del usuario
+        // Actualizar XP del usuario con el bonus (+20)
         await client.query(
           'UPDATE usuarios SET xp_total = xp_total + $1 WHERE id = $2',
-          [xpRecompensa, userId]
+          [xpBonus, userId]
         );
 
-        // Registrar en historial de XP
+        // Registrar en historial de XP el bonus por completar
         await client.query(
           'INSERT INTO historial_xp (usuario_id, cantidad, tipo, descripcion, actividad_id) VALUES ($1, $2, $3, $4, $5)',
-          [userId, xpRecompensa, 'actividad_completada', `Completado reto: ${id}`, null]
+          [userId, xpBonus, 'reto_completado', `Completado reto: ${id}`, null]
         );
 
-        await client.query('COMMIT');
-        xpGanado = xpRecompensa;
-
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
+        xpGanado = xpTotalGanado;
       }
+
+      await client.query('COMMIT');
+
+      res.json({
+        message: correctas === total ? 'Reto completado exitosamente' : 'Respuestas enviadas',
+        correctas,
+        total,
+        xp_ganado: xpGanado
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error al responder reto:', error);
+      res.status(500).json({ error: 'Error en el servidor' });
+    } finally {
+      client.release();
     }
 
     res.json({
@@ -691,6 +780,7 @@ const verificarRespuesta = async (req, res) => {
 module.exports = {
   crearReto,
   getRetosActivos,
+  getRetosPorCategoria,
   unirseReto,
   completarReto,
   getPreguntasReto,

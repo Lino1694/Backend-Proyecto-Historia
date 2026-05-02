@@ -32,25 +32,60 @@ const getStudentsProgress = async (req, res) => {
     // Para cada estudiante, calcular el progreso
     const studentsWithProgress = [];
     for (const student of studentsResult.rows) {
-      // Calcular progreso general basado en lecciones completadas del total disponible
-      const totalLessonsQuery = await pool.query('SELECT COUNT(*) as total FROM lecciones');
-      const totalLessons = parseInt(totalLessonsQuery.rows[0].total);
-
-      const completedLessonsQuery = await pool.query(
-        'SELECT COUNT(*) as completadas FROM lecciones_completadas WHERE estudiante_id = $1',
-        [student.id]
+      // Calcular progreso general basado en respuestas correctas en retos (0.8% por respuesta correcta)
+      const correctAnswersQuery = await pool.query(
+        'SELECT COUNT(*) as correctas FROM historial_xp WHERE usuario_id = $1 AND tipo = $2',
+        [student.id, 'respuesta_correcta']
       );
-      const completedLessons = parseInt(completedLessonsQuery.rows[0].completadas);
+      const correctAnswers = parseInt(correctAnswersQuery.rows[0].correctas);
 
-      const progresoGeneral = totalLessons > 0
-        ? Math.round((completedLessons / totalLessons) * 100)
-        : 0;
+      // Cada respuesta correcta aumenta el progreso en 0.8%
+      const progresoGeneral = Math.min(Math.round(correctAnswers * 0.8), 100);
 
-      // Para progreso por tema, usar un tema genérico o calcular por lecciones individuales
-      const progresoPorTema = [{
-        tema: 'General',
-        progreso: progresoGeneral.toString()
-      }];
+      // Calcular progreso por tema incluyendo retos completados por categoría
+      const progresoPorTema = [];
+
+      // Progreso por temas de lecciones (si hay)
+      const temasLeccionesQuery = await pool.query(`
+        SELECT l.tema, COUNT(*) as total, COUNT(lc.id) as completadas
+        FROM lecciones l
+        LEFT JOIN lecciones_completadas lc ON l.id = lc.leccion_id AND lc.estudiante_id = $1
+        WHERE l.tema IS NOT NULL AND l.tema != ''
+        GROUP BY l.tema
+      `, [student.id]);
+
+      for (const tema of temasLeccionesQuery.rows) {
+        const progresoTema = tema.total > 0 ? Math.round((tema.completadas / tema.total) * 100) : 0;
+        progresoPorTema.push({
+          tema: tema.tema,
+          progreso: progresoTema.toString()
+        });
+      }
+
+      // Progreso por categorías de retos
+      const categoriasRetosQuery = await pool.query(`
+        SELECT r.categoria, COUNT(*) as total, COUNT(rp.id) as completados
+        FROM retos r
+        LEFT JOIN reto_participantes rp ON r.id = rp.reto_id AND rp.usuario_id = $1 AND rp.completed_at IS NOT NULL
+        WHERE r.categoria IS NOT NULL AND r.categoria != ''
+        GROUP BY r.categoria
+      `, [student.id]);
+
+      for (const categoria of categoriasRetosQuery.rows) {
+        const progresoCategoria = categoria.total > 0 ? Math.round((categoria.completados / categoria.total) * 100) : 0;
+        progresoPorTema.push({
+          tema: categoria.categoria.replace('Avanzando en la Historia - ', ''),
+          progreso: progresoCategoria.toString()
+        });
+      }
+
+      // Si no hay progreso específico por tema, usar general
+      if (progresoPorTema.length === 0) {
+        progresoPorTema.push({
+          tema: 'General',
+          progreso: progresoGeneral.toString()
+        });
+      }
 
       // Verificar si está activo (actividad en últimas 2 horas)
       const dosHorasAtras = new Date(Date.now() - 2 * 60 * 60 * 1000);

@@ -180,6 +180,7 @@ const createTables = async () => {
         titulo VARCHAR(255) NOT NULL,
         descripcion TEXT,
         tipo VARCHAR(20) CHECK (tipo IN ('individual', 'competition')),
+        categoria VARCHAR(100),
         xp_recompensa INTEGER NOT NULL,
         fecha_fin DATE NOT NULL,
         max_intentos INTEGER,
@@ -195,6 +196,14 @@ const createTables = async () => {
     `).catch(err => {
       // Ignorar error si ya existe
       if (!err.message.includes('already')) console.log('Nota: max_intentos ya existe');
+    });
+
+    // Asegurar que la columna categoria exista
+    await pool.query(`
+      ALTER TABLE retos ADD COLUMN IF NOT EXISTS categoria VARCHAR(100);
+    `).catch(err => {
+      // Ignorar error si ya existe
+      if (!err.message.includes('already')) console.log('Nota: categoria ya existe');
     });
 
     // 9. TABLA DE PREGUNTAS DE RETOS
