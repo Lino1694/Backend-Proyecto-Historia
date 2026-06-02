@@ -2,7 +2,7 @@ const { pool } = require('../config/database');
 
 // Crear un nuevo reto
 const crearReto = async (req, res) => {
-  const { titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, preguntas, max_intentos } = req.body;
+  const { titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, preguntas, max_intentos, clase_id } = req.body;
   const userId = req.user.id;
   const userRole = req.user.role;
 
@@ -126,10 +126,10 @@ const crearReto = async (req, res) => {
       await client.query('BEGIN');
 
       // Insertar reto
-      console.log('Insertando reto en BD:', { titulo, categoria, fecha_fin, xp_recompensa });
+      console.log('Insertando reto en BD:', { titulo, categoria, fecha_fin, xp_recompensa, clase_id });
       const retoResult = await client.query(
-        'INSERT INTO retos (titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, max_intentos, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-        [titulo, descripcion || null, tipo, categoria || null, xp_recompensa, fecha_fin, max_intentos || null, userId]
+        'INSERT INTO retos (titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, max_intentos, created_by, clase_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id',
+        [titulo, descripcion || null, tipo, categoria || null, xp_recompensa, fecha_fin, max_intentos || null, userId, clase_id || null]
       );
       const retoId = retoResult.rows[0].id;
       console.log('Reto creado con ID:', retoId);
@@ -190,24 +190,29 @@ const getRetosPorCategoria = async (req, res) => {
   try {
     console.log('=== OBTENIENDO RETOS POR CATEGORÍA ===');
 
-    const retos = await pool.query(`
-      SELECT
-        r.id,
-        r.titulo,
-        r.descripcion,
-        r.tipo,
-        r.categoria,
-        r.xp_recompensa,
-        COUNT(rp.usuario_id) as participantes,
-        CASE WHEN r.fecha_fin >= CURRENT_DATE THEN 'active' ELSE 'completed' END as estado,
-        r.fecha_fin,
-        r.created_by as creador_id,
-        r.created_at
-      FROM retos r
-      LEFT JOIN reto_participantes rp ON r.id = rp.reto_id
-      GROUP BY r.id
-      ORDER BY r.categoria, r.created_at DESC
-    `);
+    const userId = req.user?.id;
+
+    // Obtener todos los retos (sin filtrado por clase para ahora)
+    const retosQuery = `
+        SELECT
+          r.id,
+          r.titulo,
+          r.descripcion,
+          r.tipo,
+          r.categoria,
+          r.xp_recompensa,
+          COUNT(rp.usuario_id) as participantes,
+          CASE WHEN r.fecha_fin >= CURRENT_DATE THEN 'active' ELSE 'completed' END as estado,
+          r.fecha_fin,
+          r.created_by as creador_id,
+          r.created_at
+        FROM retos r
+        LEFT JOIN reto_participantes rp ON r.id = rp.reto_id
+        GROUP BY r.id
+        ORDER BY r.categoria, r.created_at DESC
+      `;
+
+    const retos = await pool.query(retosQuery);
 
     // Organizar por categorías
     const categorias = {
@@ -217,8 +222,10 @@ const getRetosPorCategoria = async (req, res) => {
         "El Virreinato en el Perú": [],
         "La Independencia": [],
         "La Conquista de Perú": [],
+        "La Batalla de Angamos": [],
         "Retos Personalizados": []
-      }
+      },
+      "Otros": []
     };
 
     retos.rows.forEach(reto => {
@@ -228,14 +235,11 @@ const getRetosPorCategoria = async (req, res) => {
         if (categorias["Avanzando en la Historia"][subcategoria]) {
           categorias["Avanzando en la Historia"][subcategoria].push(reto);
         } else {
-          // Si no existe la subcategoría, agregarla
+          // Si no existe la subcategoría, agregarla dinámicamente
           categorias["Avanzando en la Historia"][subcategoria] = [reto];
         }
       } else {
         // Retos sin categoría o de otras categorías
-        if (!categorias["Otros"]) {
-          categorias["Otros"] = [];
-        }
         categorias["Otros"].push(reto);
       }
     });
@@ -312,13 +316,23 @@ const unirseReto = async (req, res) => {
 
     // Verificar que el reto existe y está activo
     const reto = await pool.query(
-      'SELECT id, fecha_fin FROM retos WHERE id = $1 AND fecha_fin >= CURRENT_DATE',
+      'SELECT r.id, r.fecha_fin, r.clase_id FROM retos r WHERE r.id = $1 AND r.fecha_fin >= CURRENT_DATE',
       [Number(reto_id)]
     );
 
     if (reto.rows.length === 0) {
       return res.status(404).json({
         error: 'Reto no encontrado o ya expirado'
+      });
+    }
+
+    // Verificar que el estudiante pertenece a la clase del reto (si tiene clase asignada)
+    const userResult = await pool.query('SELECT clase_id FROM usuarios WHERE id = $1', [userId]);
+    const userClaseId = userResult.rows[0]?.clase_id;
+    const retoClaseId = reto.rows[0].clase_id;
+    if (retoClaseId && userClaseId && retoClaseId !== userClaseId) {
+      return res.status(403).json({
+        error: 'Este reto no está disponible para tu clase'
       });
     }
 
@@ -400,25 +414,21 @@ const completarReto = async (req, res) => {
       // Registrar en historial de XP
       await client.query(
         'INSERT INTO historial_xp (usuario_id, cantidad, tipo, descripcion, actividad_id) VALUES ($1, $2, $3, $4, $5)',
-        [userId, xpGanado, 'actividad_completada', `Completado reto: ${reto_id}`, null]
+        [userId, xpGanado, 'reto_completado', `Completado reto: ${reto_id}`, null]
       );
 
       await client.query('COMMIT');
-      console.log('Transacción commited exitosamente para reto ID:', retoId);
+      console.log('Transacción commited exitosamente para reto ID:', reto_id);
 
-      // Verificar que el reto se guardó correctamente
-      const verifyResult = await pool.query('SELECT id, titulo, fecha_fin FROM retos WHERE id = $1', [retoId]);
-      console.log('Verificación del reto guardado:', verifyResult.rows[0]);
-
-      res.status(201).json({
-        id: retoId,
-        message: 'Reto creado exitosamente'
+      res.json({
+        message: 'Reto completado exitosamente',
+        xp_ganado: xpGanado
       });
 
     } catch (error) {
-      console.log('Error en transacción, haciendo rollback:', error.message);
       await client.query('ROLLBACK');
-      throw error;
+      console.error('Error al completar reto:', error);
+      res.status(500).json({ error: 'Error en el servidor' });
     } finally {
       client.release();
     }
@@ -564,20 +574,20 @@ const responderReto = async (req, res) => {
       });
     }
 
-    // Incrementar intentos usados
-    await pool.query(
-      'UPDATE reto_participantes SET intentos_usados = intentos_usados + 1 WHERE id = $1',
-      [part.id]
-    );
-
-    let correctas = 0;
-    const total = preguntas.rows.length;
-    let xpGanadoIndividual = 0;
-
-    // Iniciar transacción para todas las operaciones
+    // Usar transacción para todas las operaciones
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+
+      // Incrementar intentos usados
+      await client.query(
+        'UPDATE reto_participantes SET intentos_usados = intentos_usados + 1 WHERE id = $1',
+        [part.id]
+      );
+
+      let correctas = 0;
+      const total = preguntas.rows.length;
+      let xpGanadoIndividual = 0;
 
       // Verificar cada respuesta
       for (let i = 0; i < respuestas.length; i++) {
@@ -594,18 +604,14 @@ const responderReto = async (req, res) => {
         let esCorrecta = false;
 
         if (pregunta.tipo_pregunta === 'multiple_choice') {
-          // Para múltiple choice, respuesta es el índice
           const indice = parseInt(respuesta.respuesta);
           const indiceCorrecto = parseInt(pregunta.respuesta_correcta);
           esCorrecta = !isNaN(indice) && indice === indiceCorrecto;
         } else if (pregunta.tipo_pregunta === 'fill_blank') {
-          // Para completar espacios, respuesta es el texto
           esCorrecta = respuesta.respuesta.trim().toLowerCase() === pregunta.respuesta_correcta.trim().toLowerCase();
         } else if (pregunta.tipo_pregunta === 'drag_drop') {
-          // Para drag_drop, respuesta es un objeto con el mapping zona->elemento
           try {
             const respuestaMapping = typeof respuesta.respuesta === 'string' ? JSON.parse(respuesta.respuesta) : respuesta.respuesta;
-            // El mapping correcto está en opciones.zonas_destino
             const correctMapping = {};
             pregunta.opciones.zonas_destino.forEach(zona => {
               correctMapping[zona.id] = zona.elemento_correcto_id;
@@ -618,9 +624,9 @@ const responderReto = async (req, res) => {
 
         if (esCorrecta) {
           correctas++;
-          xpGanadoIndividual += 4; // +4 XP por respuesta correcta
+          xpGanadoIndividual += 4;
 
-          // Otorgar XP por respuesta correcta individual
+          // Registrar XP por respuesta correcta individual
           await client.query(
             'INSERT INTO historial_xp (usuario_id, cantidad, tipo, descripcion, actividad_id) VALUES ($1, $2, $3, $4, $5)',
             [userId, 4, 'respuesta_correcta', `Respuesta correcta en reto ${id}, pregunta ${pregunta.id}`, null]
@@ -637,9 +643,9 @@ const responderReto = async (req, res) => {
       }
 
       // Si todas son correctas, completar el reto y dar bonus
-      let xpGanado = xpGanadoIndividual; // Incluir XP de respuestas individuales
+      let xpGanado = xpGanadoIndividual;
       if (correctas === total) {
-        const xpBonus = 20; // +20 por completar perfectamente
+        const xpBonus = 20;
         const xpTotalGanado = xpGanadoIndividual + xpBonus;
 
         // Marcar como completado
@@ -679,13 +685,6 @@ const responderReto = async (req, res) => {
     } finally {
       client.release();
     }
-
-    res.json({
-      message: correctas === total ? 'Reto completado exitosamente' : 'Respuestas enviadas',
-      correctas,
-      total,
-      xp_ganado: xpGanado
-    });
 
   } catch (error) {
     console.error('Error al responder reto:', error);
@@ -777,6 +776,48 @@ const verificarRespuesta = async (req, res) => {
   }
 };
 
+// Obtener intentos restantes para un reto
+const getIntentosRestantes = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  try {
+    // Verificar que el reto existe y tiene max_intentos
+    const reto = await pool.query(
+      'SELECT max_intentos FROM retos WHERE id = $1',
+      [id]
+    );
+
+    if (reto.rows.length === 0) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    const maxIntentos = reto.rows[0].max_intentos;
+
+    if (!maxIntentos) {
+      return res.json({ intentos_restantes: -1 }); // -1 indica ilimitado
+    }
+
+    // Obtener intentos usados por el usuario
+    const participacion = await pool.query(
+      'SELECT intentos_usados FROM reto_participantes WHERE reto_id = $1 AND usuario_id = $2',
+      [id, userId]
+    );
+
+    const intentosUsados = participacion.rows.length > 0 
+      ? participacion.rows[0].intentos_usados 
+      : 0;
+
+    const intentosRestantes = maxIntentos - intentosUsados;
+
+    res.json({ intentos_restantes: Math.max(0, intentosRestantes) });
+
+  } catch (error) {
+    console.error('Error al obtener intentos restantes:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
 module.exports = {
   crearReto,
   getRetosActivos,
@@ -785,5 +826,6 @@ module.exports = {
   completarReto,
   getPreguntasReto,
   responderReto,
-  verificarRespuesta
+  verificarRespuesta,
+  getIntentosRestantes
 };

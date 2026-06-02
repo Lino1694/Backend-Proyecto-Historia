@@ -9,7 +9,8 @@ const {
   completarReto,
   getPreguntasReto,
   responderReto,
-  verificarRespuesta
+  verificarRespuesta,
+  getIntentosRestantes
 } = require('../controllers/retosController');
 
 /**
@@ -390,6 +391,7 @@ router.post('/completar', authenticateToken, completarReto);
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/:id/preguntas', authenticateToken, getPreguntasReto);
+router.get('/:id/intentos', authenticateToken, getIntentosRestantes);
 
 /**
  * @swagger

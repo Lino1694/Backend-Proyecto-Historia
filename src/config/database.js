@@ -36,6 +36,7 @@ const createTables = async () => {
         ultima_actividad DATE,
         avatar_url TEXT,
         titulo VARCHAR(50) DEFAULT 'explorador' CHECK (titulo IN ('explorador', 'maestro', 'inca', 'inti', 'almirante', 'capitan', 'soldado', 'historiador')),
+        clase_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -48,6 +49,7 @@ const createTables = async () => {
       ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultima_actividad DATE;
       ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS avatar_url TEXT;
       ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS titulo VARCHAR(50) DEFAULT 'explorador' CHECK (titulo IN ('explorador', 'maestro', 'inca', 'inti', 'almirante', 'capitan', 'soldado', 'historiador'));
+      ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clase_id INTEGER;
     `);
     console.log('✅ Tabla "usuarios" verificada/creada correctamente');
 
@@ -184,6 +186,7 @@ const createTables = async () => {
         xp_recompensa INTEGER NOT NULL,
         fecha_fin DATE NOT NULL,
         max_intentos INTEGER,
+        clase_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_by INTEGER REFERENCES usuarios(id) ON DELETE SET NULL
       );
@@ -204,6 +207,13 @@ const createTables = async () => {
     `).catch(err => {
       // Ignorar error si ya existe
       if (!err.message.includes('already')) console.log('Nota: categoria ya existe');
+    });
+
+    // Asegurar que la columna clase_id exista
+    await pool.query(`
+      ALTER TABLE retos ADD COLUMN IF NOT EXISTS clase_id INTEGER;
+    `).catch(err => {
+      if (!err.message.includes('already')) console.log('Nota: clase_id ya existe');
     });
 
     // 9. TABLA DE PREGUNTAS DE RETOS
