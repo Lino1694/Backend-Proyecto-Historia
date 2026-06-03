@@ -216,6 +216,19 @@ const createTables = async () => {
       if (!err.message.includes('already')) console.log('Nota: clase_id ya existe');
     });
 
+    // Asegurar que la columna dificultad exista
+    await pool.query(`
+      ALTER TABLE retos ADD COLUMN IF NOT EXISTS dificultad VARCHAR(20) CHECK (dificultad IN ('Fácil', 'Intermedio', 'Difícil'));
+    `).catch(err => {
+      if (!err.message.includes('already')) console.log('Nota: dificultad ya existe');
+    });
+
+    // Poblar dificultad en retos existentes que no la tengan
+    await pool.query(`
+      UPDATE retos SET dificultad = 'Intermedio' WHERE dificultad IS NULL;
+    `);
+    console.log('✅ Dificultad poblada en retos existentes');
+
     // 9. TABLA DE PREGUNTAS DE RETOS
     await pool.query(`
       CREATE TABLE IF NOT EXISTS preguntas_reto (
@@ -342,20 +355,37 @@ const createTables = async () => {
     `);
     console.log('✅ Tabla "lecciones_completadas" verificada/creada correctamente');
 
-    // 14. TABLA DE PROGRESO POR ESTUDIANTE Y TEMA
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS progreso_estudiante_tema (
-        id SERIAL PRIMARY KEY,
-        estudiante_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
-        tema VARCHAR(255) NOT NULL,
-        progreso DECIMAL(5,2) DEFAULT 0 CHECK (progreso >= 0 AND progreso <= 100),
-        lecciones_completadas INTEGER DEFAULT 0,
-        total_lecciones INTEGER DEFAULT 0,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(estudiante_id, tema)
-      );
-    `);
-    console.log('✅ Tabla "progreso_estudiante_tema" verificada/creada correctamente');
+// 14. TABLA DE PROGRESO POR ESTUDIANTE Y TEMA
+     await pool.query(`
+       CREATE TABLE IF NOT EXISTS progreso_estudiante_tema (
+         id SERIAL PRIMARY KEY,
+         estudiante_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+         tema VARCHAR(255) NOT NULL,
+         progreso DECIMAL(5,2) DEFAULT 0 CHECK (progreso >= 0 AND progreso <= 100),
+         lecciones_completadas INTEGER DEFAULT 0,
+         total_lecciones INTEGER DEFAULT 0,
+         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+         UNIQUE(estudiante_id, tema)
+       );
+     `);
+     console.log('✅ Tabla "progreso_estudiante_tema" verificada/creada correctamente');
+
+     // 15. TABLA DE ASIGNACIONES DE LECCIONES
+     await pool.query(`
+       CREATE TABLE IF NOT EXISTS asignaciones_lecciones (
+         id SERIAL PRIMARY KEY,
+         leccion_id INTEGER REFERENCES lecciones(id) ON DELETE CASCADE,
+         profesor_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+         tipo_asignacion VARCHAR(20) CHECK (tipo_asignacion IN ('estudiantes', 'grupo')) NOT NULL,
+         estudiante_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+         grupo_id INTEGER,
+         titulo_personalizado VARCHAR(255),
+         fecha_asignacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+         fecha_vencimiento TIMESTAMP,
+         activa BOOLEAN DEFAULT TRUE
+       );
+     `);
+     console.log('✅ Tabla "asignaciones_lecciones" verificada/creada correctamente');
 
     // Asegurar que la columna 'tema' existe (por compatibilidad con versiones anteriores)
     await pool.query(`
@@ -397,10 +427,14 @@ const createTables = async () => {
       CREATE INDEX IF NOT EXISTS idx_reto_participantes_usuario ON reto_participantes(usuario_id);
       CREATE INDEX IF NOT EXISTS idx_lecciones_created_by ON lecciones(created_by);
       CREATE INDEX IF NOT EXISTS idx_lecciones_tema ON lecciones(tema);
-      CREATE INDEX IF NOT EXISTS idx_lecciones_completadas_estudiante ON lecciones_completadas(estudiante_id);
-      CREATE INDEX IF NOT EXISTS idx_lecciones_completadas_leccion ON lecciones_completadas(leccion_id);
-      CREATE INDEX IF NOT EXISTS idx_progreso_estudiante_tema_estudiante ON progreso_estudiante_tema(estudiante_id);
-      CREATE INDEX IF NOT EXISTS idx_progreso_estudiante_tema_tema ON progreso_estudiante_tema(tema);
+CREATE INDEX IF NOT EXISTS idx_lecciones_completadas_estudiante ON lecciones_completadas(estudiante_id);
+       CREATE INDEX IF NOT EXISTS idx_lecciones_completadas_leccion ON lecciones_completadas(leccion_id);
+       CREATE INDEX IF NOT EXISTS idx_progreso_estudiante_tema_estudiante ON progreso_estudiante_tema(estudiante_id);
+       CREATE INDEX IF NOT EXISTS idx_progreso_estudiante_tema_tema ON progreso_estudiante_tema(tema);
+       CREATE INDEX IF NOT EXISTS idx_asignaciones_lecciones_leccion ON asignaciones_lecciones(leccion_id);
+CREATE INDEX IF NOT EXISTS idx_asignaciones_lecciones_profesor ON asignaciones_lecciones(profesor_id);
+      CREATE INDEX IF NOT EXISTS idx_asignaciones_lecciones_estudiante ON asignaciones_lecciones(estudiante_id);
+      CREATE INDEX IF NOT EXISTS idx_asignaciones_lecciones_grupo ON asignaciones_lecciones(grupo_id);
     `);
     console.log('✅ Índices creados correctamente');
 

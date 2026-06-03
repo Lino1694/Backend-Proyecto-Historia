@@ -273,6 +273,208 @@ const updateLeccion = async (req, res) => {
   }
 };
 
+// Asignar lección a estudiantes o grupo
+const asignarLeccion = async (req, res) => {
+  const { leccion_id, tipo_asignacion, estudiantes_ids, grupo_id, titulo_personalizado, fecha_vencimiento } = req.body;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden asignar lecciones'
+      });
+    }
+
+    // Validar campos obligatorios
+    if (!leccion_id) {
+      return res.status(400).json({
+        error: 'El ID de la lección es obligatorio'
+      });
+    }
+
+    if (!tipo_asignacion || !['estudiantes', 'grupo'].includes(tipo_asignacion)) {
+      return res.status(400).json({
+        error: 'El tipo de asignación debe ser "estudiantes" o "grupo"'
+      });
+    }
+
+    // Verificar que la lección existe
+    const leccion = await pool.query(
+      'SELECT id, titulo FROM lecciones WHERE id = $1',
+      [leccion_id]
+    );
+
+    if (leccion.rows.length === 0) {
+      return res.status(404).json({ error: 'Lección no encontrada' });
+    }
+
+    // Verificar que el profesor tiene acceso a esta lección (la creó él o es moderador)
+    const leccionCreada = await pool.query(
+      'SELECT created_by FROM lecciones WHERE id = $1 AND (created_by = $2 OR $3 = true)',
+      [leccion_id, userId, userRole === 'moderator']
+    );
+
+    if (leccionCreada.rows.length === 0 && userRole !== 'moderator') {
+      return res.status(403).json({
+        error: 'No tienes permisos para asignar esta lección'
+      });
+    }
+
+    // Crear asignaciones
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      if (tipo_asignacion === 'estudiantes') {
+        // Asignar a estudiantes individualmente
+        if (!estudiantes_ids || !Array.isArray(estudiantes_ids) || estudiantes_ids.length === 0) {
+          return res.status(400).json({
+            error: 'Debe proporcionar un arreglo de IDs de estudiantes'
+          });
+        }
+
+        // Verificar que los estudiantes existen y son estudiantes
+        const estudiantes = await client.query(
+          'SELECT id FROM usuarios WHERE id = ANY($1) AND role = $2',
+          [estudiantes_ids, 'student']
+        );
+
+        if (estudiantes.rows.length !== estudiantes_ids.length) {
+          return res.status(400).json({
+            error: 'Algunos estudiantes no existen o no son estudiantes válidos'
+          });
+        }
+
+        // Insertar asignaciones
+        for (const estudianteId of estudiantes_ids) {
+          await client.query(
+            `INSERT INTO asignaciones_lecciones
+             (leccion_id, profesor_id, tipo_asignacion, estudiante_id, titulo_personalizado, fecha_vencimiento)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [leccion_id, userId, 'estudiantes', estudianteId, titulo_personalizado || null, fecha_vencimiento || null]
+          );
+        }
+      } else if (tipo_asignacion === 'grupo') {
+        // Asignar a un grupo (por ahora solo marcamos el grupo_id, los estudiantes se asignarían por separado)
+        if (!grupo_id) {
+          // Si no hay grupo_id, pero es tipo grupo, asignamos a todos los estudiantes sin clase_id (estudiantes libres)
+          // Esto es un comportamiento por defecto temporal
+          const estudiantes = await client.query(
+            'SELECT id FROM usuarios WHERE role = $1 AND clase_id IS NULL',
+            ['student']
+          );
+
+          for (const estudiante of estudiantes.rows) {
+            await client.query(
+              `INSERT INTO asignaciones_lecciones
+               (leccion_id, profesor_id, tipo_asignacion, estudiante_id, grupo_id, titulo_personalizado, fecha_vencimiento)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [leccion_id, userId, 'grupo', estudiante.id, grupo_id || null, titulo_personalizado || null, fecha_vencimiento || null]
+            );
+          }
+        } else {
+          // Asignar a estudiantes que pertenecen al grupo (clase_id)
+          const estudiantes = await client.query(
+            'SELECT id FROM usuarios WHERE role = $1 AND clase_id = $2',
+            ['student', grupo_id]
+          );
+
+          if (estudiantes.rows.length === 0) {
+            return res.status(400).json({
+              error: 'No hay estudiantes en el grupo especificado'
+            });
+          }
+
+          for (const estudiante of estudiantes.rows) {
+            await client.query(
+              `INSERT INTO asignaciones_lecciones
+               (leccion_id, profesor_id, tipo_asignacion, estudiante_id, grupo_id, titulo_personalizado, fecha_vencimiento)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [leccion_id, userId, 'grupo', estudiante.id, grupo_id, titulo_personalizado || null, fecha_vencimiento || null]
+            );
+          }
+        }
+      }
+
+      await client.query('COMMIT');
+
+      res.status(201).json({
+        message: 'Lección asignada exitosamente',
+        tipo_asignacion,
+        cantidad: tipo_asignacion === 'estudiantes' ? estudiantes_ids.length : 'varios'
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Error al asignar lección:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Obtener lecciones asignadas a un estudiante
+const obtenerLeccionesAsignadas = async (req, res) => {
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    let lecciones;
+
+    if (userRole === 'teacher') {
+      // Profesor ve las lecciones que ha asignado
+      lecciones = await pool.query(
+        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url, 
+                al.tipo_asignacion, al.fecha_asignacion, al.fecha_vencimiento, al.activa,
+                u.nombre as profesor_nombre
+         FROM asignaciones_lecciones al
+         JOIN lecciones l ON al.leccion_id = l.id
+         JOIN usuarios u ON al.profesor_id = u.id
+         WHERE al.profesor_id = $1
+         ORDER BY al.fecha_asignacion DESC`,
+        [userId]
+      );
+    } else if (userRole === 'student') {
+      // Estudiante ve las lecciones asignadas a él
+      lecciones = await pool.query(
+        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url,
+                al.tipo_asignacion, al.fecha_asignacion, al.fecha_vencimiento, al.activa,
+                u.nombre as profesor_nombre, al.titulo_personalizado
+         FROM asignaciones_lecciones al
+         JOIN lecciones l ON al.leccion_id = l.id
+         JOIN usuarios u ON al.profesor_id = u.id
+         WHERE al.estudiante_id = $1 AND al.activa = true
+         ORDER BY al.fecha_asignacion DESC`,
+        [userId]
+      );
+    } else {
+      // Moderador ve todas las asignaciones
+      lecciones = await pool.query(
+        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url,
+                al.tipo_asignacion, al.fecha_asignacion, al.fecha_vencimiento, al.activa,
+                u.nombre as profesor_nombre, u2.nombre as estudiante_nombre
+         FROM asignaciones_lecciones al
+         JOIN lecciones l ON al.leccion_id = l.id
+         JOIN usuarios u ON al.profesor_id = u.id
+         LEFT JOIN usuarios u2 ON al.estudiante_id = u2.id
+         ORDER BY al.fecha_asignacion DESC`
+      );
+    }
+
+    res.json(lecciones.rows);
+
+  } catch (error) {
+    console.error('Error al obtener lecciones asignadas:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
 // Completar una lección
 const completarLeccion = async (req, res) => {
   const { leccion_id, puntuacion, total_preguntas } = req.body;
@@ -415,5 +617,7 @@ module.exports = {
   crearLeccion,
   getLecciones,
   updateLeccion,
-  completarLeccion
+  completarLeccion,
+  asignarLeccion,
+  obtenerLeccionesAsignadas
 };

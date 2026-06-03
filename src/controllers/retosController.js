@@ -2,7 +2,7 @@ const { pool } = require('../config/database');
 
 // Crear un nuevo reto
 const crearReto = async (req, res) => {
-  const { titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, preguntas, max_intentos, clase_id } = req.body;
+  const { titulo, descripcion, tipo, categoria, xp_recompensa, dificultad, fecha_fin, preguntas, max_intentos, clase_id } = req.body;
   const userId = req.user.id;
   const userRole = req.user.role;
 
@@ -128,8 +128,8 @@ const crearReto = async (req, res) => {
       // Insertar reto
       console.log('Insertando reto en BD:', { titulo, categoria, fecha_fin, xp_recompensa, clase_id });
       const retoResult = await client.query(
-        'INSERT INTO retos (titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, max_intentos, created_by, clase_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id',
-        [titulo, descripcion || null, tipo, categoria || null, xp_recompensa, fecha_fin, max_intentos || null, userId, clase_id || null]
+        'INSERT INTO retos (titulo, descripcion, tipo, categoria, xp_recompensa, dificultad, fecha_fin, max_intentos, created_by, clase_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id',
+        [titulo, descripcion || null, tipo, categoria || null, xp_recompensa, dificultad || 'Intermedio', fecha_fin, max_intentos || null, userId, clase_id || null]
       );
       const retoId = retoResult.rows[0].id;
       console.log('Reto creado con ID:', retoId);
@@ -201,6 +201,7 @@ const getRetosPorCategoria = async (req, res) => {
           r.tipo,
           r.categoria,
           r.xp_recompensa,
+          r.dificultad,
           COUNT(rp.usuario_id) as participantes,
           CASE WHEN r.fecha_fin >= CURRENT_DATE THEN 'active' ELSE 'completed' END as estado,
           r.fecha_fin,
@@ -274,6 +275,7 @@ const getRetosActivos = async (req, res) => {
         r.descripcion,
         r.tipo,
         r.xp_recompensa,
+        r.dificultad,
         COUNT(rp.usuario_id) as participantes,
         CASE WHEN r.fecha_fin >= CURRENT_DATE THEN 'active' ELSE 'completed' END as estado,
         r.fecha_fin,

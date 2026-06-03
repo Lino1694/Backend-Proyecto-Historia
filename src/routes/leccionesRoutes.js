@@ -5,7 +5,9 @@ const {
   crearLeccion,
   getLecciones,
   updateLeccion,
-  completarLeccion
+  completarLeccion,
+  asignarLeccion,
+  obtenerLeccionesAsignadas
 } = require('../controllers/leccionesController');
 
 /**
@@ -277,5 +279,88 @@ router.put('/:id', authenticateToken, updateLeccion);
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/completar', authenticateToken, completarLeccion);
+
+/**
+ * @swagger
+ * /api/lecciones/asignar:
+ *   post:
+ *     summary: Asignar lección a estudiantes o grupo
+ *     tags: [Lecciones]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - leccion_id
+ *               - tipo_asignacion
+ *             properties:
+ *               leccion_id:
+ *                 type: integer
+ *                 description: ID de la lección a asignar
+ *               tipo_asignacion:
+ *                 type: string
+ *                 enum: [estudiantes, grupo]
+ *                 description: Tipo de asignación
+ *               estudiantes_ids:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                 description: IDs de estudiantes (requerido si tipo_asignacion es "estudiantes")
+ *               grupo_id:
+ *                 type: integer
+ *                 description: ID del grupo/clase (opcional si tipo_asignacion es "grupo")
+ *               titulo_personalizado:
+ *                 type: string
+ *                 description: Título personalizado para la asignación
+ *               fecha_vencimiento:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Fecha límite para completar
+ *     responses:
+ *       201:
+ *         description: Lección asignada exitosamente
+ *       400:
+ *         description: Error de validación
+ *       403:
+ *         description: No autorizado
+ *       404:
+ *         description: Lección no encontrada
+ */
+router.post('/asignar', authenticateToken, asignarLeccion);
+
+/**
+ * @swagger
+ * /api/lecciones/asignadas:
+ *   get:
+ *     summary: Obtener lecciones asignadas
+ *     tags: [Lecciones]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Lista de lecciones asignadas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   titulo:
+ *                     type: string
+ *                   tipo_asignacion:
+ *                     type: string
+ *                   fecha_asignacion:
+ *                     type: string
+ *                   activa:
+ *                     type: boolean
+ */
+router.get('/asignadas', authenticateToken, obtenerLeccionesAsignadas);
 
 module.exports = router;

@@ -413,9 +413,199 @@ const getLeccionReportDetail = async (req, res) => {
   }
 };
 
+// Obtener reportes de rendimiento por reto
+const getRetoReports = async (req, res) => {
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden acceder a los reportes'
+      });
+    }
+
+    // Obtener todos los retos
+    const retosQuery = 'SELECT id, titulo, categoria FROM retos ORDER BY titulo';
+    const retos = await pool.query(retosQuery);
+
+    // Obtener todos los estudiantes
+    const studentsQuery = 'SELECT id, nombre, avatar_url FROM usuarios WHERE role = $1 ORDER BY nombre';
+    const students = await pool.query(studentsQuery, ['student']);
+
+    const reports = [];
+
+    for (const reto of retos.rows) {
+      // Calcular estadísticas para cada reto
+      const completionsQuery = `
+        SELECT rp.*, u.nombre, u.avatar_url
+        FROM reto_participantes rp
+        JOIN usuarios u ON rp.usuario_id = u.id
+        WHERE rp.reto_id = $1 AND u.role = $2
+      `;
+      const completions = await pool.query(completionsQuery, [reto.id, 'student']);
+
+      const totalEstudiantes = students.rows.length;
+      const estudiantesCompletaron = completions.rows.filter(c => c.completed_at !== null).length;
+
+      // Calcular promedio de puntuaciones
+      let promedioPuntuacion = 0;
+      if (completions.rows.length > 0) {
+        const totalScore = completions.rows.reduce((sum, comp) => {
+          return sum + (comp.xp_ganado || 0);
+        }, 0);
+        promedioPuntuacion = Math.round(totalScore / completions.rows.length);
+      }
+
+      // Calcular tasa de completitud
+      const tasaCompletitud = totalEstudiantes > 0 ? Math.round((estudiantesCompletaron / totalEstudiantes) * 100) : 0;
+
+      // Preparar lista de estudiantes con su estado
+      const estudiantes = students.rows.map(student => {
+        const completion = completions.rows.find(c => c.nombre === student.nombre);
+        let estado = 'no_iniciado';
+        let puntuacion = 0;
+
+        if (completion) {
+          if (completion.completed_at) {
+            estado = 'completado';
+            puntuacion = completion.xp_ganado || 0;
+          } else {
+            estado = 'en_progreso';
+            puntuacion = completion.xp_ganado || 0;
+          }
+        }
+
+        return {
+          nombre: student.nombre,
+          avatar_url: student.avatar_url,
+          puntuacion: puntuacion,
+          estado: estado
+        };
+      });
+
+      reports.push({
+        id: reto.id,
+        titulo: reto.titulo,
+        promedio_puntuacion: promedioPuntuacion,
+        tasa_completitud: tasaCompletitud,
+        total_estudiantes: totalEstudiantes,
+        estudiantes: estudiantes,
+        preguntas_dificiles: []
+      });
+    }
+
+    res.json(reports);
+
+  } catch (error) {
+    console.error('Error al obtener reportes de retos:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Obtener detalles de rendimiento de un reto específico
+const getRetoReportDetail = async (req, res) => {
+  const { reto_id } = req.params;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden acceder a los reportes'
+      });
+    }
+
+    // Obtener información del reto
+    const retoQuery = 'SELECT id, titulo, descripcion, categoria, xp_recompensa FROM retos WHERE id = $1';
+    const reto = await pool.query(retoQuery, [reto_id]);
+
+    if (reto.rows.length === 0) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    const retoData = reto.rows[0];
+
+    // Obtener todas las completaciones de este reto
+    const completionsQuery = `
+      SELECT rp.*, u.nombre, u.avatar_url, rp.completed_at as fecha_completado
+      FROM reto_participantes rp
+      JOIN usuarios u ON rp.usuario_id = u.id
+      WHERE rp.reto_id = $1 AND u.role = $2
+      ORDER BY rp.completed_at DESC
+    `;
+    const completions = await pool.query(completionsQuery, [reto_id, 'student']);
+
+    // Calcular estadísticas generales
+    const totalEstudiantes = completions.rows.length;
+    let promedioGeneral = 0;
+
+    if (totalEstudiantes > 0) {
+      const totalScore = completions.rows.reduce((sum, comp) => {
+        return sum + (comp.xp_ganado || 0);
+      }, 0);
+      promedioGeneral = Math.round(totalScore / totalEstudiantes);
+    }
+
+    // Calcular distribución de puntuaciones
+    const distribucion = {
+      excelente: 0, // 80-100 XP
+      bueno: 0,     // 40-79 XP
+      regular: 0,   // 10-39 XP
+      deficiente: 0 // 0-9 XP
+    };
+
+    completions.rows.forEach(comp => {
+      const xp = comp.xp_ganado || 0;
+      if (xp >= 80) distribucion.excelente++;
+      else if (xp >= 40) distribucion.bueno++;
+      else if (xp >= 10) distribucion.regular++;
+      else distribucion.deficiente++;
+    });
+
+    // Preparar lista de estudiantes con detalles
+    const estudiantes = completions.rows.map(comp => ({
+      id: comp.usuario_id,
+      nombre: comp.nombre,
+      avatar_url: comp.avatar_url,
+      puntuacion: comp.xp_ganado || 0,
+      tiempo_completado: 0,
+      fecha_completado: comp.fecha_completado,
+      respuestas: []
+    }));
+
+    const estadisticas = {
+      promedio_general: promedioGeneral,
+      tasa_completitud: totalEstudiantes,
+      tiempo_promedio: 0,
+      distribucion_puntuaciones: distribucion
+    };
+
+    res.json({
+      reto: {
+        id: retoData.id,
+        titulo: retoData.titulo,
+        descripcion: retoData.descripcion,
+        xp_recompensa: retoData.xp_recompensa
+      },
+      estadisticas: estadisticas,
+      estudiantes: estudiantes,
+      analisis_preguntas: []
+    });
+
+  } catch (error) {
+    console.error('Error al obtener detalles de reporte de reto:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
 module.exports = {
   getStudentsProgress,
   getStudentProgress,
   getLeccionReports,
-  getLeccionReportDetail
+  getLeccionReportDetail,
+  getRetoReports,
+  getRetoReportDetail
 };

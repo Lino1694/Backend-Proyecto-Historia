@@ -7,6 +7,7 @@ const angamosChallenges = [
     tipo: "individual",
     categoria: "Avanzando en la Historia - La Batalla de Angamos",
     xp_recompensa: 16,
+    dificultad: "Fácil",
     fecha_fin: "2026-12-31",
     max_intentos: 3,
     preguntas: [
@@ -38,6 +39,7 @@ const angamosChallenges = [
     tipo: "individual",
     categoria: "Avanzando en la Historia - La Batalla de Angamos",
     xp_recompensa: 16,
+    dificultad: "Intermedio",
     fecha_fin: "2026-12-31",
     max_intentos: 3,
     preguntas: [
@@ -69,6 +71,7 @@ const angamosChallenges = [
     tipo: "individual",
     categoria: "Avanzando en la Historia - La Batalla de Angamos",
     xp_recompensa: 16,
+    dificultad: "Intermedio",
     fecha_fin: "2026-12-31",
     max_intentos: 3,
     preguntas: [
@@ -100,6 +103,7 @@ const angamosChallenges = [
     tipo: "individual",
     categoria: "Avanzando en la Historia - La Batalla de Angamos",
     xp_recompensa: 16,
+    dificultad: "Difícil",
     fecha_fin: "2026-12-31",
     max_intentos: 3,
     preguntas: [
@@ -131,6 +135,7 @@ const angamosChallenges = [
     tipo: "individual",
     categoria: "Avanzando en la Historia - La Batalla de Angamos",
     xp_recompensa: 16,
+    dificultad: "Fácil",
     fecha_fin: "2026-12-31",
     max_intentos: 3,
     preguntas: [
@@ -183,19 +188,20 @@ async function createAngamosChallenges() {
     for (const challenge of angamosChallenges) {
       console.log(`Creando reto: ${challenge.titulo}`);
 
-      const retoResult = await client.query(
-        'INSERT INTO retos (titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, max_intentos, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-        [
-          challenge.titulo,
-          challenge.descripcion,
-          challenge.tipo,
-          challenge.categoria,
-          challenge.xp_recompensa,
-          challenge.fecha_fin,
-          challenge.max_intentos,
-          teacherId
-        ]
-      );
+const retoResult = await client.query(
+    'INSERT INTO retos (titulo, descripcion, tipo, categoria, xp_recompensa, dificultad, fecha_fin, max_intentos, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id',
+    [
+      challenge.titulo,
+      challenge.descripcion,
+      challenge.tipo,
+      challenge.categoria,
+      challenge.xp_recompensa,
+      challenge.dificultad || 'Intermedio',
+      challenge.fecha_fin,
+      challenge.max_intentos,
+      teacherId
+    ]
+  );
 
       const retoId = retoResult.rows[0].id;
       console.log(`Reto creado con ID: ${retoId}`);
@@ -228,6 +234,22 @@ async function createAngamosChallenges() {
   }
 }
 
+async function updateExistingRetos() {
+  const client = await pool.connect();
+  try {
+    console.log('Actualizando dificultad de retos existentes...');
+    await client.query(`
+      UPDATE retos SET dificultad = 'Intermedio' 
+      WHERE dificultad IS NULL
+    `);
+    console.log('Retos actualizados exitosamente');
+  } catch (error) {
+    console.error('Error al actualizar retos:', error);
+  } finally {
+    client.release();
+  }
+}
+
 if (require.main === module) {
   createAngamosChallenges()
     .then(() => {
@@ -240,4 +262,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { createAngamosChallenges, angamosChallenges };
+module.exports = { createAngamosChallenges, angamosChallenges, updateExistingRetos };

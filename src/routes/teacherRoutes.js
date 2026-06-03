@@ -5,7 +5,9 @@ const {
   getStudentsProgress,
   getStudentProgress,
   getLeccionReports,
-  getLeccionReportDetail
+  getLeccionReportDetail,
+  getRetoReports,
+  getRetoReportDetail
 } = require('../controllers/teacherController');
 
 /**
@@ -357,5 +359,192 @@ router.get('/reportes/lecciones', authenticateToken, authorizeTeacher, getLeccio
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/reportes/lecciones/:leccion_id', authenticateToken, authorizeTeacher, getLeccionReportDetail);
+
+/**
+  * @swagger
+  * /teacher/reportes/retos:
+  *   get:
+  *     summary: Obtener reportes de rendimiento por reto
+  *     tags: [Profesor - Reportes]
+  *     security:
+  *       - bearerAuth: []
+  *     responses:
+  *       200:
+  *         description: Lista de reportes de retos
+  *         content:
+  *           application/json:
+  *             schema:
+  *               type: array
+  *               items:
+  *                 type: object
+  *                 properties:
+  *                   id:
+  *                     type: integer
+  *                     description: ID del reto
+  *                   titulo:
+  *                     type: string
+  *                     description: Título del reto
+  *                   promedio_puntuacion:
+  *                     type: number
+  *                     description: Promedio de XP ganado
+  *                   tasa_completitud:
+  *                     type: number
+  *                     description: Porcentaje de estudiantes que completaron el reto
+  *                   total_estudiantes:
+  *                     type: integer
+  *                     description: Número total de estudiantes
+  *                   estudiantes:
+  *                     type: array
+  *                     description: Lista de estudiantes con su rendimiento
+  *                     items:
+  *                       type: object
+  *                       properties:
+  *                         nombre:
+  *                           type: string
+  *                         avatar_url:
+  *                           type: string
+  *                         puntuacion:
+  *                           type: integer
+  *                         estado:
+  *                           type: string
+  *                           enum: [completado, en_progreso, no_iniciado]
+  *       403:
+  *         description: No autorizado - Solo profesores
+  *         content:
+  *           application/json:
+  *             schema:
+  *               $ref: '#/components/schemas/Error'
+  *       500:
+  *         description: Error del servidor
+  *         content:
+  *           application/json:
+  *             schema:
+  *               $ref: '#/components/schemas/Error'
+  */
+router.get('/reportes/retos', authenticateToken, authorizeTeacher, getRetoReports);
+
+/**
+  * @swagger
+  * /teacher/reportes/retos/{reto_id}:
+  *   get:
+  *     summary: Obtener detalles de rendimiento de un reto específico
+  *     tags: [Profesor - Reportes]
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+  *       - in: path
+  *         name: reto_id
+  *         required: true
+  *         schema:
+  *           type: integer
+  *         description: ID del reto
+  *     responses:
+  *       200:
+  *         description: Detalles completos del rendimiento del reto
+  *         content:
+  *           application/json:
+  *             schema:
+  *               type: object
+  *               properties:
+  *                 reto:
+  *                   type: object
+  *                   properties:
+  *                     id:
+  *                       type: integer
+  *                     titulo:
+  *                       type: string
+  *                     descripcion:
+  *                       type: string
+  *                     xp_recompensa:
+  *                       type: integer
+  *                 estadisticas:
+  *                   type: object
+  *                   properties:
+  *                     promedio_general:
+  *                       type: number
+  *                     tasa_completitud:
+  *                       type: number
+  *                     tiempo_promedio:
+  *                       type: number
+  *                     distribucion_puntuaciones:
+  *                       type: object
+  *                       properties:
+  *                         excelente:
+  *                           type: integer
+  *                         bueno:
+  *                           type: integer
+  *                         regular:
+  *                           type: integer
+  *                         deficiente:
+  *                           type: integer
+  *                 estudiantes:
+  *                   type: array
+  *                   description: Detalles de rendimiento por estudiante
+  *                   items:
+  *                     type: object
+  *                     properties:
+  *                       id:
+  *                         type: integer
+  *                       nombre:
+  *                         type: string
+  *                       avatar_url:
+  *                         type: string
+  *                       puntuacion:
+  *                         type: integer
+  *                       tiempo_completado:
+  *                         type: integer
+  *                       fecha_completado:
+  *                         type: string
+  *                       respuestas:
+  *                         type: array
+  *                         items:
+  *                           type: object
+  *                           properties:
+  *                             pregunta_id:
+  *                               type: integer
+  *                             correcta:
+  *                               type: boolean
+  *                             tiempo_respuesta:
+  *                               type: integer
+  *                 analisis_preguntas:
+  *                   type: array
+  *                   description: Análisis detallado por pregunta
+  *                   items:
+  *                     type: object
+  *                     properties:
+  *                       pregunta_id:
+  *                         type: integer
+  *                       pregunta_texto:
+  *                         type: string
+  *                       dificultad:
+  *                         type: string
+  *                       tasa_aciertos:
+  *                         type: number
+  *                       tiempo_promedio:
+  *                         type: number
+  *                       estudiantes_errores:
+  *                         type: array
+  *                         items:
+  *                           type: integer
+  *       403:
+  *         description: No autorizado - Solo profesores
+  *         content:
+  *           application/json:
+  *             schema:
+  *               $ref: '#/components/schemas/Error'
+  *       404:
+  *         description: Reto no encontrado
+  *         content:
+  *           application/json:
+  *             schema:
+  *               $ref: '#/components/schemas/Error'
+  *       500:
+  *         description: Error del servidor
+  *         content:
+  *           application/json:
+  *             schema:
+  *               $ref: '#/components/schemas/Error'
+  */
+router.get('/reportes/retos/:reto_id', authenticateToken, authorizeTeacher, getRetoReportDetail);
 
 module.exports = router;
