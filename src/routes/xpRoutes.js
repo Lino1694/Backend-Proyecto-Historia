@@ -9,7 +9,8 @@ const {
   obtenerInsignias,
   otorgarInsignia,
   configurarCriteriosInsignia,
-  evaluarYOtorgarInsigniasAutomaticas
+  evaluarYOtorgarInsigniasAutomaticas,
+  obtenerProgresoTimeline
 } = require('../controllers/xpController');
 const { authenticateToken, authorizeTeacher } = require('../middleware/auth');
 
@@ -240,5 +241,8 @@ router.post('/insignias/configurar-criterios', authenticateToken, authorizeTeach
  *         description: No autorizado - Solo profesores
  */
 router.post('/insignias/evaluar-automatica', authenticateToken, authorizeTeacher, evaluarYOtorgarInsigniasAutomaticas);
+
+// Obtener progreso de línea de tiempo basado en retos y lecciones completadas
+router.get('/timeline/:id', obtenerProgresoTimeline);
 
 module.exports = router;

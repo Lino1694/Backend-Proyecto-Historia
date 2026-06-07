@@ -538,6 +538,111 @@ const evaluarYOtorgarInsigniasAutomaticas = async (req, res) => {
   }
 };
 
+// Obtener progreso de la línea de tiempo basado en retos y lecciones completadas
+const obtenerProgresoTimeline = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Obtener datos del usuario
+    const usuario = await pool.query(
+      'SELECT id, nombre, role FROM usuarios WHERE id = $1',
+      [id]
+    );
+
+    if (usuario.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Mapeo de categorías de retos a períodos de la línea de tiempo
+    const timelinePeriods = [
+      { key: 'caral-ciudad', label: 'Caral', categoriaPattern: '%Caral%' },
+      { key: 'pre-inca', label: 'Pre-Inca', categoriaPattern: '%Pre-Inca%' },
+      { key: 'cultura-inca', label: 'Inca', categoriaPattern: '%Cultura Inca%' },
+      { key: 'virreinato', label: 'Virreinato', categoriaPattern: '%Virreinato%' },
+      { key: 'conquista', label: 'Conquista', categoriaPattern: '%Conquista%' },
+      { key: 'independencia', label: 'Independencia', categoriaPattern: '%Independencia%' },
+    ];
+
+    // Mapeo de temas de lecciones a períodos de la línea de tiempo
+    const lessonTopics = [
+      { key: 'caral-ciudad', label: 'Caral', temaPattern: '%Caral%' },
+      { key: 'pre-inca', label: 'Pre-Inca', temaPattern: '%Pre-Inca%' },
+      { key: 'cultura-inca', label: 'Inca', temaPattern: '%Inca%' },
+      { key: 'virreinato', label: 'Virreinato', temaPattern: '%Virreinato%' },
+      { key: 'independencia', label: 'Independencia', temaPattern: '%Independencia%' },
+    ];
+
+    const timelineProgress = {};
+
+    // Calcular progreso por categorías de retos
+    for (const period of timelinePeriods) {
+      const retosTotales = await pool.query(
+        `SELECT COUNT(*) as total FROM retos WHERE categoria ILIKE $1`,
+        [period.categoriaPattern]
+      );
+
+      const retosCompletados = await pool.query(
+        `SELECT COUNT(*) as completados 
+         FROM reto_participantes rp 
+         JOIN retos r ON rp.reto_id = r.id 
+         WHERE rp.usuario_id = $1 AND rp.completed_at IS NOT NULL AND r.categoria ILIKE $2`,
+        [id, period.categoriaPattern]
+      );
+
+      const total = parseInt(retosTotales.rows[0].total) || 0;
+      const completados = parseInt(retosCompletados.rows[0].completados) || 0;
+      
+      // El progreso es el porcentaje de retos completados (0-100)
+      timelineProgress[period.key] = total > 0 ? Math.round((completados / total) * 100) : 0;
+    }
+
+    // Calcular progreso por temas de lecciones
+    for (const topic of lessonTopics) {
+      const leccionesTotales = await pool.query(
+        `SELECT COUNT(*) as total FROM lecciones WHERE tema ILIKE $1`,
+        [topic.temaPattern]
+      );
+
+      const leccionesCompletadas = await pool.query(
+        `SELECT COUNT(*) as completadas 
+         FROM lecciones_completadas lc
+         JOIN lecciones l ON lc.leccion_id = l.id
+         WHERE lc.estudiante_id = $1 AND l.tema ILIKE $2`,
+        [id, topic.temaPattern]
+      );
+
+      const total = parseInt(leccionesTotales.rows[0].total) || 0;
+      const completadas = parseInt(leccionesCompletadas.rows[0].completadas) || 0;
+      
+      // Combinar el progreso de retos y lecciones para este período
+      const retosProgress = timelineProgress[topic.key] || 0;
+      const leccionesProgress = total > 0 ? Math.round((completadas / total) * 100) : 0;
+      
+      // El progreso final es el promedio del progreso de retos y lecciones
+      timelineProgress[topic.key] = Math.round((retosProgress + leccionesProgress) / 2);
+    }
+
+    // Calcular progreso general de la línea de tiempo
+    const progressValues = Object.values(timelineProgress);
+    const progresoGeneral = progressValues.length > 0 
+      ? Math.round(progressValues.reduce((sum, p) => sum + p, 0) / progressValues.length)
+      : 0;
+
+    res.json({
+      usuario: {
+        id: usuario.rows[0].id,
+        nombre: usuario.rows[0].nombre
+      },
+      progreso_general: progresoGeneral,
+      progreso_por_periodo: timelineProgress
+    });
+
+  } catch (error) {
+    console.error('Error al obtener progreso de timeline:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
 module.exports = {
   otorgarXP,
   obtenerPerfilXP,
@@ -547,5 +652,6 @@ module.exports = {
   obtenerInsignias,
   otorgarInsignia,
   configurarCriteriosInsignia,
-  evaluarYOtorgarInsigniasAutomaticas
+  evaluarYOtorgarInsigniasAutomaticas,
+  obtenerProgresoTimeline
 };

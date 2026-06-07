@@ -104,7 +104,7 @@ const processDataUrls = async (multimediaArray, userId) => {
 
 // Crear una nueva lección
 const crearLeccion = async (req, res) => {
-  const { titulo, descripcion, contenido, imagen_url, preguntas, multimedia } = req.body;
+  const { titulo, descripcion, contenido, imagen_url, preguntas, multimedia, tema } = req.body;
   const userId = req.user.id;
   const userRole = req.user.role;
 
@@ -131,10 +131,10 @@ const crearLeccion = async (req, res) => {
 
     // Insertar lección
     const result = await pool.query(
-      `INSERT INTO lecciones (titulo, descripcion, contenido, imagen_url, preguntas, multimedia, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, titulo, descripcion, contenido, imagen_url, preguntas, multimedia, created_by, created_at`,
-      [titulo, descripcion || null, contenido || null, imagen_url || null, preguntas ? JSON.stringify(preguntas) : null, processedMultimedia ? JSON.stringify(processedMultimedia) : null, userId]
+      `INSERT INTO lecciones (titulo, descripcion, contenido, imagen_url, preguntas, multimedia, tema, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, titulo, descripcion, contenido, imagen_url, preguntas, multimedia, tema, created_by, created_at`,
+      [titulo, descripcion || null, contenido || null, imagen_url || null, preguntas ? JSON.stringify(preguntas) : null, processedMultimedia ? JSON.stringify(processedMultimedia) : null, tema || null, userId]
     );
 
     res.status(201).json({
@@ -152,7 +152,7 @@ const crearLeccion = async (req, res) => {
 const getLecciones = async (req, res) => {
   try {
     const lecciones = await pool.query(
-      `SELECT id, titulo, descripcion, contenido, imagen_url, preguntas, multimedia
+      `SELECT id, titulo, descripcion, contenido, imagen_url, preguntas, multimedia, tema
        FROM lecciones
        ORDER BY created_at DESC`
     );
@@ -175,7 +175,7 @@ const getLecciones = async (req, res) => {
 // Actualizar una lección
 const updateLeccion = async (req, res) => {
   const { id } = req.params;
-  const { titulo, descripcion, contenido, imagen_url, preguntas, multimedia } = req.body;
+  const { titulo, descripcion, contenido, imagen_url, preguntas, multimedia, tema } = req.body;
   const userId = req.user.id;
   const userRole = req.user.role;
 
@@ -197,7 +197,7 @@ const updateLeccion = async (req, res) => {
     }
 
     // Verificar que al menos un campo esté presente
-    if (titulo === undefined && descripcion === undefined && contenido === undefined && imagen_url === undefined && preguntas === undefined && multimedia === undefined) {
+    if (titulo === undefined && descripcion === undefined && contenido === undefined && imagen_url === undefined && preguntas === undefined && multimedia === undefined && tema === undefined) {
       return res.status(400).json({
         error: 'Debe proporcionar al menos un campo para actualizar'
       });
@@ -247,6 +247,12 @@ const updateLeccion = async (req, res) => {
     if (multimedia !== undefined) {
       updates.push(`multimedia = $${paramCount}`);
       values.push(processedMultimedia ? JSON.stringify(processedMultimedia) : null);
+      paramCount++;
+    }
+
+    if (tema !== undefined) {
+      updates.push(`tema = $${paramCount}`);
+      values.push(tema);
       paramCount++;
     }
 
@@ -430,7 +436,7 @@ const obtenerLeccionesAsignadas = async (req, res) => {
     if (userRole === 'teacher') {
       // Profesor ve las lecciones que ha asignado
       lecciones = await pool.query(
-        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url, 
+        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url, l.tema,
                 al.tipo_asignacion, al.fecha_asignacion, al.fecha_vencimiento, al.activa,
                 u.nombre as profesor_nombre
          FROM asignaciones_lecciones al
@@ -443,7 +449,7 @@ const obtenerLeccionesAsignadas = async (req, res) => {
     } else if (userRole === 'student') {
       // Estudiante ve las lecciones asignadas a él
       lecciones = await pool.query(
-        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url,
+        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url, l.tema,
                 al.tipo_asignacion, al.fecha_asignacion, al.fecha_vencimiento, al.activa,
                 u.nombre as profesor_nombre, al.titulo_personalizado
          FROM asignaciones_lecciones al
@@ -456,7 +462,7 @@ const obtenerLeccionesAsignadas = async (req, res) => {
     } else {
       // Moderador ve todas las asignaciones
       lecciones = await pool.query(
-        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url,
+        `SELECT al.id as asignacion_id, l.id, l.titulo, l.descripcion, l.imagen_url, l.tema,
                 al.tipo_asignacion, al.fecha_asignacion, al.fecha_vencimiento, al.activa,
                 u.nombre as profesor_nombre, u2.nombre as estudiante_nombre
          FROM asignaciones_lecciones al
@@ -552,46 +558,6 @@ const completarLeccion = async (req, res) => {
           [userId, xpGanado, 'leccion_completada', `Completada lección: ${leccionData.titulo}`]
         );
       }
-
-      // Nota: La actualización de progreso por tema está deshabilitada temporalmente
-      // debido a problemas con la columna 'tema' en la base de datos
-      // TODO: Rehabilitar cuando se corrija el esquema de la base de datos
-      /*
-      // Actualizar progreso por tema
-      if (leccionData.tema && leccionData.tema.trim() !== '') {
-        // Obtener total de lecciones para este tema
-        const totalLecciones = await client.query(
-          'SELECT COUNT(*) as total FROM lecciones WHERE tema = $1',
-          [leccionData.tema]
-        );
-
-        // Obtener lecciones completadas por el estudiante para este tema
-        const completadas = await client.query(
-          `SELECT COUNT(*) as completadas FROM lecciones_completadas lc
-            JOIN lecciones l ON lc.leccion_id = l.id
-            WHERE lc.estudiante_id = $1 AND l.tema = $2`,
-          [userId, leccionData.tema]
-        );
-
-        const total = parseInt(totalLecciones.rows[0].total);
-        const completadasCount = parseInt(completadas.rows[0].completadas);
-        const progreso = total > 0 ? (completadasCount / total) * 100 : 0;
-
-        // Insertar o actualizar progreso
-        await client.query(
-          `INSERT INTO progreso_estudiante_tema
-            (estudiante_id, tema, progreso, lecciones_completadas, total_lecciones)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (estudiante_id, tema)
-            DO UPDATE SET
-              progreso = EXCLUDED.progreso,
-              lecciones_completadas = EXCLUDED.lecciones_completadas,
-              total_lecciones = EXCLUDED.total_lecciones,
-              updated_at = CURRENT_TIMESTAMP`,
-          [userId, leccionData.tema, progreso, completadasCount, total]
-        );
-      }
-      */
 
       await client.query('COMMIT');
 
