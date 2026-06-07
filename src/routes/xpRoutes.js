@@ -5,8 +5,13 @@ const {
   obtenerPerfilXP, 
   obtenerRanking,
   actualizarRacha,
-  obtenerNiveles
+  obtenerNiveles,
+  obtenerInsignias,
+  otorgarInsignia,
+  configurarCriteriosInsignia,
+  evaluarYOtorgarInsigniasAutomaticas
 } = require('../controllers/xpController');
+const { authenticateToken, authorizeTeacher } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -99,6 +104,18 @@ router.get('/ranking', obtenerRanking);
 
 /**
  * @swagger
+ * /api/xp/niveles:
+ *   get:
+ *     summary: Obtener todos los niveles disponibles
+ *     tags: [XP]
+ *     responses:
+ *       200:
+ *         description: Lista de niveles
+ */
+router.get('/niveles', obtenerNiveles);
+
+/**
+ * @swagger
  * /api/xp/racha:
  *   post:
  *     summary: Actualizar racha diaria de un usuario
@@ -125,14 +142,103 @@ router.post('/racha', actualizarRacha);
 
 /**
  * @swagger
- * /api/xp/niveles:
+ * /api/xp/insignias:
  *   get:
- *     summary: Obtener todos los niveles disponibles
+ *     summary: Obtener todas las insignias disponibles
  *     tags: [XP]
  *     responses:
  *       200:
- *         description: Lista de niveles
+ *         description: Lista de insignias
  */
-router.get('/niveles', obtenerNiveles);
+router.get('/insignias', obtenerInsignias);
+
+/**
+ * @swagger
+ * /api/xp/insignias/otorgar:
+ *   post:
+ *     summary: Otorgar insignia a un usuario
+ *     tags: [XP]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - usuario_id
+ *               - insignia_id
+ *             properties:
+ *               usuario_id:
+ *                 type: integer
+ *                 example: 1
+ *               insignia_id:
+ *                 type: integer
+ *                 example: 1
+ *               motivo:
+ *                 type: string
+ *                 example: Excelente desempeño en exámenes
+ *     responses:
+ *       200:
+ *         description: Insignia otorgada exitosamente
+ *       400:
+ *         description: Datos inválidos o ya tiene la insignia
+ *       404:
+ *         description: Usuario o insignia no encontrada
+ */
+router.post('/insignias/otorgar', authenticateToken, authorizeTeacher, otorgarInsignia);
+
+/**
+ * @swagger
+ * /api/xp/insignias/configurar-criterios:
+ *   post:
+ *     summary: Configurar criterios para insignias automáticas
+ *     tags: [XP]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - insignia_id
+ *               - criterio
+ *             properties:
+ *               insignia_id:
+ *                 type: integer
+ *                 example: 1
+ *               criterio:
+ *                 type: object
+ *                 example:
+ *                   tipo: "xp_minimo"
+ *                   valor: 1000
+ *     responses:
+ *       200:
+ *         description: Criterio configurado exitosamente
+ *       400:
+ *         description: Datos inválidos
+ *       404:
+ *         description: Insignia no encontrada
+ */
+router.post('/insignias/configurar-criterios', authenticateToken, authorizeTeacher, configurarCriteriosInsignia);
+
+/**
+ * @swagger
+ * /api/xp/insignias/evaluar-automatica:
+ *   post:
+ *     summary: Evaluar y otorgar insignias automáticamente
+ *     tags: [XP]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Evaluación completada
+ *       403:
+ *         description: No autorizado - Solo profesores
+ */
+router.post('/insignias/evaluar-automatica', authenticateToken, authorizeTeacher, evaluarYOtorgarInsigniasAutomaticas);
 
 module.exports = router;

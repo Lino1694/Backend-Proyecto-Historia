@@ -407,8 +407,63 @@ const getLeccionReportDetail = async (req, res) => {
       analisis_preguntas: analisisPreguntas
     });
 
-  } catch (error) {
+} catch (error) {
     console.error('Error al obtener detalles de reporte de lección:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Obtener estudiantes con bajo rendimiento (puntuación promedio < threshold)
+const getEstudiantesBajoRendimiento = async (req, res) => {
+  const userId = req.user.id;
+  const userRole = req.user.role;
+  const { threshold = 60 } = req.query;
+
+  try {
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden acceder a esta funcionalidad'
+      });
+    }
+
+    const studentsProgress = await pool.query(`
+      SELECT u.id, u.nombre, u.avatar_url, u.nivel, u.xp_total
+      FROM usuarios u
+      WHERE u.role = 'student'
+      ORDER BY u.nombre
+    `);
+
+    const result = [];
+    for (const student of studentsProgress.rows) {
+      const progressQuery = `
+        SELECT 
+          COUNT(lc.id) as lecciones_completadas,
+          COUNT(DISTINCT l.id) as total_lecciones,
+          COALESCE(AVG(lc.puntuacion::float / NULLIF(lc.total_preguntas::float, 0) * 100), 0) as promedio_puntuacion
+        FROM lecciones l
+        LEFT JOIN lecciones_completadas lc ON l.id = lc.leccion_id AND lc.estudiante_id = $1
+        WHERE l.tema IS NOT NULL AND l.tema != ''
+      `;
+      const progress = await pool.query(progressQuery, [student.id]);
+      
+      const promedio = parseFloat(progress.rows[0].promedio_puntuacion) || 0;
+      
+      result.push({
+        id: student.id,
+        nombre: student.nombre,
+        avatar_url: student.avatar_url,
+        nivel: student.nivel,
+        xp_total: student.xp_total,
+        promedio_puntuacion: Math.round(promedio),
+        lecciones_completadas: parseInt(progress.rows[0].lecciones_completadas) || 0
+      });
+    }
+
+    const filtered = result.filter(s => s.promedio_puntuacion < parseInt(threshold) && s.lecciones_completadas > 0);
+    
+    res.json(filtered);
+  } catch (error) {
+    console.error('Error al obtener estudiantes con bajo rendimiento:', error);
     res.status(500).json({ error: 'Error en el servidor' });
   }
 };
@@ -607,5 +662,7 @@ module.exports = {
   getLeccionReports,
   getLeccionReportDetail,
   getRetoReports,
-  getRetoReportDetail
+  getRetoReportDetail,
+  getEstudiantesBajoRendimiento
 };
+

@@ -7,7 +7,8 @@ const {
   getLeccionReports,
   getLeccionReportDetail,
   getRetoReports,
-  getRetoReportDetail
+  getRetoReportDetail,
+  getEstudiantesBajoRendimiento
 } = require('../controllers/teacherController');
 
 /**
@@ -546,5 +547,51 @@ router.get('/reportes/retos', authenticateToken, authorizeTeacher, getRetoReport
   *               $ref: '#/components/schemas/Error'
   */
 router.get('/reportes/retos/:reto_id', authenticateToken, authorizeTeacher, getRetoReportDetail);
+
+ /**
+  * @swagger
+  * /teacher/students/low-performance:
+  *   get:
+  *     summary: Obtener estudiantes con bajo rendimiento
+  *     tags: [Profesor - Reportes]
+  *     security:
+  *       - bearerAuth: []
+  *     parameters:
+  *       - in: query
+  *         name: threshold
+  *         schema:
+  *           type: integer
+  *           default: 60
+  *         description: Umbral de puntuación para considerar bajo rendimiento
+  *     responses:
+  *       200:
+  *         description: Lista de estudiantes con bajo rendimiento
+  *         content:
+  *           application/json:
+  *             schema:
+  *               type: array
+  *               items:
+  *                 type: object
+  *                 properties:
+  *                   id:
+  *                     type: integer
+  *                   nombre:
+  *                     type: string
+  *                   avatar_url:
+  *                     type: string
+  *                   nivel:
+  *                     type: integer
+  *                   xp_total:
+  *                     type: integer
+  *                   promedio_puntuacion:
+  *                     type: number
+  *                   lecciones_completadas:
+  *                     type: integer
+  *       403:
+  *         description: No autorizado - Solo profesores
+  *       500:
+  *         description: Error del servidor
+  */
+router.get('/students/low-performance', authenticateToken, authorizeTeacher, getEstudiantesBajoRendimiento);
 
 module.exports = router;

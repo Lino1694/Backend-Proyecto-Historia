@@ -342,10 +342,210 @@ const obtenerNiveles = async (req, res) => {
   }
 };
 
+// Obtener todas las insignias disponibles
+const obtenerInsignias = async (req, res) => {
+  try {
+    const insignias = await pool.query(
+      'SELECT id, nombre, descripcion, icono, color, criterio FROM insignias ORDER BY nombre'
+    );
+    res.json(insignias.rows);
+  } catch (error) {
+    console.error('Error al obtener insignias:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Otorgar insignia a un usuario
+const otorgarInsignia = async (req, res) => {
+  const { usuario_id, insignia_id, motivo } = req.body;
+
+  try {
+    if (!usuario_id || !insignia_id) {
+      return res.status(400).json({
+        error: 'usuario_id e insignia_id son obligatorios'
+      });
+    }
+
+    // Verificar que el usuario existe
+    const usuarioExists = await pool.query(
+      'SELECT id FROM usuarios WHERE id = $1',
+      [usuario_id]
+    );
+    if (usuarioExists.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Verificar que la insignia existe
+    const insigniaExists = await pool.query(
+      'SELECT id, nombre FROM insignias WHERE id = $1',
+      [insignia_id]
+    );
+    if (insigniaExists.rows.length === 0) {
+      return res.status(404).json({ error: 'Insignia no encontrada' });
+    }
+
+    // Verificar si ya tiene la insignia
+    const yaTiene = await pool.query(
+      'SELECT id FROM insignias_usuario WHERE usuario_id = $1 AND insignia_id = $2',
+      [usuario_id, insignia_id]
+    );
+    if (yaTiene.rows.length > 0) {
+      return res.status(400).json({ 
+        error: `El usuario ya tiene la insignia ${insigniaExists.rows[0].nombre}` 
+      });
+    }
+
+    // Otorgar la insignia
+    await pool.query(
+      'INSERT INTO insignias_usuario (usuario_id, insignia_id, motivo) VALUES ($1, $2, $3)',
+      [usuario_id, insignia_id, motivo || ` - Otorgada manualmente`]
+    );
+
+    res.json({
+      message: 'Insignia otorgada exitosamente',
+      usuario_id,
+      insignia_id,
+      nombre_insignia: insigniaExists.rows[0].nombre
+    });
+
+  } catch (error) {
+    console.error('Error al otorgar insignia:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Configurar criterios para insignias automáticas
+const configurarCriteriosInsignia = async (req, res) => {
+  const { insignia_id, criterio } = req.body;
+
+  try {
+    if (!insignia_id || !criterio) {
+      return res.status(400).json({
+        error: 'insignia_id y criterio son obligatorios'
+      });
+    }
+
+    // Verificar que la insignia existe
+    const insigniaExists = await pool.query(
+      'SELECT id FROM insignias WHERE id = $1',
+      [insignia_id]
+    );
+    if (insigniaExists.rows.length === 0) {
+      return res.status(404).json({ error: 'Insignia no encontrada' });
+    }
+
+    // Actualizar criterio
+    await pool.query(
+      'UPDATE insignias SET criterio = $1 WHERE id = $2',
+      [JSON.stringify(criterio), insignia_id]
+    );
+
+    res.json({
+      message: 'Criterio de insignia configurado exitosamente',
+      insignia_id,
+      criterio
+    });
+
+  } catch (error) {
+    console.error('Error al configurar criterio de insignia:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Evaluar y otorgar insignias automáticamente
+const evaluarYOtorgarInsigniasAutomaticas = async (req, res) => {
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden ejecutar esta evaluación'
+      });
+    }
+
+    // Obtener todas las insignias con criterios automáticos
+    const insigniasConCriterio = await pool.query(
+      'SELECT id, nombre, criterio FROM insignias WHERE criterio IS NOT NULL'
+    );
+
+    const resultados = [];
+
+    for (const insignia of insigniasConCriterio.rows) {
+      const criterio = typeof insignia.criterio === 'string' 
+        ? JSON.parse(insignia.criterio) 
+        : insignia.criterio;
+
+      // Obtener estudiantes que cumplen el criterio
+      let estudiantesCumplidores = [];
+      
+      if (criterio.tipo === 'xp_minimo') {
+        const estudiantes = await pool.query(
+          'SELECT id, nombre, xp_total FROM usuarios WHERE role = $1 AND xp_total >= $2',
+          ['student', criterio.valor]
+        );
+        estudiantesCumplidores = estudiantes.rows;
+      } else if (criterio.tipo === 'nivel_minimo') {
+        const estudiantes = await pool.query(
+          'SELECT id, nombre, nivel, xp_total FROM usuarios WHERE role = $1 AND nivel >= $2',
+          ['student', criterio.valor]
+        );
+        estudiantesCumplidores = estudiantes.rows;
+      } else if (criterio.tipo === 'respuestas_correctas') {
+        const estudiantes = await pool.query(
+          `SELECT u.id, u.nombre, COUNT(h.id) as correctas 
+           FROM usuarios u
+           LEFT JOIN historial_xp h ON u.id = h.usuario_id AND h.tipo = 'respuesta_correcta'
+           WHERE u.role = $1
+           GROUP BY u.id, u.nombre
+           HAVING COUNT(h.id) >= $2`,
+          ['student', criterio.valor]
+        );
+        estudiantesCumplidores = estudiantes.rows;
+      }
+
+      // Otorgar insignias a estudiantes que no la tengan
+      for (const estudiante of estudiantesCumplidores) {
+        const yaLaTiene = await pool.query(
+          'SELECT id FROM insignias_usuario WHERE usuario_id = $1 AND insignia_id = $2',
+          [estudiante.id, insignia.id]
+        );
+
+        if (yaLaTiene.rows.length === 0) {
+          await pool.query(
+            'INSERT INTO insignias_usuario (usuario_id, insignia_id, motivo) VALUES ($1, $2, $3)',
+            [estudiante.id, insignia.id, 'Otorgada automáticamente']
+          );
+          
+          resultados.push({
+            insignia: insignia.nombre,
+            estudiante: estudiante.nombre,
+            estudiante_id: estudiante.id
+          });
+        }
+      }
+    }
+
+    res.json({
+      message: 'Evaluación completada',
+      insignias_otorgadas: resultados.length,
+      detalles: resultados
+    });
+
+  } catch (error) {
+    console.error('Error al evaluar insignias automáticas:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
 module.exports = {
   otorgarXP,
   obtenerPerfilXP,
   obtenerRanking,
   actualizarRacha,
-  obtenerNiveles
+  obtenerNiveles,
+  obtenerInsignias,
+  otorgarInsignia,
+  configurarCriteriosInsignia,
+  evaluarYOtorgarInsigniasAutomaticas
 };
