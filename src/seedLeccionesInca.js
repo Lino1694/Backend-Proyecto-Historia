@@ -107,15 +107,14 @@ async function seedLecciones() {
       }
     }
     console.log('✅ Semilla de lecciones Inca completada');
-    process.exit(0);
   } catch (error) {
     console.error('❌ Error:', error);
-    process.exit(1);
+    throw error;
   }
 }
 
 module.exports = { seedLecciones };
 
 if (require.main === module) {
-  seedLecciones()
-    .then(() => {
+  seedLecciones();
+}
