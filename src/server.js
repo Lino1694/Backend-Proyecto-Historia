@@ -63,7 +63,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Iniciar servidor con inicialización de base de datos
+// Iniciar servidor con inicialización de base de datos y scripts
 const startServer = async () => {
   try {
     console.log('\n' + '='.repeat(60));
@@ -72,6 +72,48 @@ const startServer = async () => {
     
     // Inicializar base de datos (crear tablas si no existen)
     await initializeDatabase();
+
+    // Ejecutar scripts de inicialización de datos
+    console.log('\n📝 Ejecutando scripts de inicialización...');
+    const seedScripts = [
+      { path: './scripts/createCaralChallenges', fn: 'createCaralChallenges', name: 'createCaralChallenges' },
+      { path: './scripts/createInkaChallenges', fn: 'createInkaChallenges', name: 'createInkaChallenges' },
+      { path: './scripts/createVirreinatoChallenges', fn: 'createVirreinatoChallenges', name: 'createVirreinatoChallenges' },
+      { path: './scripts/createConquistaChallenges', fn: 'createConquistaChallenges', name: 'createConquistaChallenges' },
+      { path: './scripts/createIndependenciaChallenges', fn: 'createIndependenciaChallenges', name: 'createIndependenciaChallenges' },
+      { path: './scripts/createAngamosChallenges', fn: 'createAngamosChallenges', name: 'createAngamosChallenges' },
+      { path: './scripts/updateInkaChallengesCategoria', fn: 'updateInkaChallengesCategoria', name: 'updateInkaChallengesCategoria' }
+    ];
+    
+    for (const script of seedScripts) {
+      try {
+        const mod = require(script.path);
+        if (typeof mod[script.fn] === 'function') {
+          await mod[script.fn]();
+          console.log(`  ✓ ${script.name}`);
+        } else {
+          console.log(`  ⚠ ${script.name}: función no encontrada`);
+        }
+      } catch (err) {
+        // Ignorar errores de duplicados (código 23505 de PostgreSQL)
+        if (err.code === '23505' || err.message?.includes('duplicate') || err.message?.includes('ya existe')) {
+          console.log(`  ✓ ${script.name}: datos ya existentes`);
+        } else {
+          console.log(`  ⚠ ${script.name}: ${err.message || 'Error'}`);
+        }
+      }
+    }
+
+    // Sembrar lecciones Inca
+    try {
+      const { seedLecciones } = require('./seedLeccionesInca');
+      await seedLecciones();
+      console.log(`  ✓ seedLeccionesInca`);
+    } catch (err) {
+      console.log(`  ⚠ seedLeccionesInca: ${err.message || 'Error'}`);
+    }
+
+    console.log('📝 Scripts de inicialización completados\n');
 
     // Iniciar servidor
     app.listen(PORT, () => {

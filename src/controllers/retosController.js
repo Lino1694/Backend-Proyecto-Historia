@@ -820,6 +820,181 @@ const getIntentosRestantes = async (req, res) => {
   }
 };
 
+// Eliminar un reto (solo profesores)
+const eliminarReto = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden eliminar retos'
+      });
+    }
+
+    // Verificar que el reto existe
+    const reto = await pool.query(
+      'SELECT created_by FROM retos WHERE id = $1',
+      [id]
+    );
+
+    if (reto.rows.length === 0) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    // Verificar que el profesor es el creador o admin
+    const esCreador = reto.rows[0].created_by === userId;
+    if (!esCreador) {
+      return res.status(403).json({ error: 'No tienes permiso para eliminar este reto' });
+    }
+
+    // Eliminar en transacción
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Eliminar preguntas del reto
+      await client.query('DELETE FROM preguntas_reto WHERE reto_id = $1', [id]);
+
+      // Eliminar participaciones
+      await client.query('DELETE FROM reto_participantes WHERE reto_id = $1', [id]);
+
+      // Eliminar el reto
+      await client.query('DELETE FROM retos WHERE id = $1', [id]);
+
+      await client.query('COMMIT');
+
+      res.json({ message: 'Reto eliminado exitosamente' });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Error al eliminar reto:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Actualizar un reto (solo profesores)
+const actualizarReto = async (req, res) => {
+  const { id } = req.params;
+  const { titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, max_intentos, preguntas } = req.body;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({
+        error: 'Solo los profesores pueden editar retos'
+      });
+    }
+
+    // Verificar que el reto existe
+    const reto = await pool.query(
+      'SELECT created_by FROM retos WHERE id = $1',
+      [id]
+    );
+
+    if (reto.rows.length === 0) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    // Verificar que el profesor es el creador
+    if (reto.rows[0].created_by !== userId) {
+      return res.status(403).json({ error: 'No tienes permiso para editar este reto' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Actualizar el reto
+      const updateResult = await client.query(
+        'UPDATE retos SET titulo = $1, descripcion = $2, tipo = $3, categoria = $4, xp_recompensa = $5, fecha_fin = $6, max_intentos = $7 WHERE id = $8',
+        [titulo, descripcion || null, tipo, categoria || null, xp_recompensa, fecha_fin, max_intentos || null, id]
+      );
+
+      // Si hay preguntas nuevas, reemplazar las existentes
+      if (preguntas && Array.isArray(preguntas)) {
+        // Eliminar preguntas existentes
+        await client.query('DELETE FROM preguntas_reto WHERE reto_id = $1', [id]);
+
+        // Insertar nuevas preguntas
+        for (const p of preguntas) {
+          await client.query(
+            'INSERT INTO preguntas_reto (reto_id, pregunta, opciones, respuesta_correcta, tipo_pregunta) VALUES ($1, $2, $3, $4, $5)',
+            [id, p.pregunta, JSON.stringify(p.opciones), p.respuesta_correcta.toString(), 'multiple_choice']
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+
+      res.json({ message: 'Reto actualizado exitosamente' });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Error al actualizar reto:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+// Obtener un reto específico con preguntas (para edición)
+const obtenerReto = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+
+  try {
+    // Verificar que sea profesor
+    if (userRole !== 'teacher') {
+      return res.status(403).json({ error: 'Solo los profesores pueden ver detalles de retos' });
+    }
+
+    // Verificar que el reto existe
+    const reto = await pool.query(
+      'SELECT id, titulo, descripcion, tipo, categoria, xp_recompensa, fecha_fin, max_intentos FROM retos WHERE id = $1',
+      [id]
+    );
+
+    if (reto.rows.length === 0) {
+      return res.status(404).json({ error: 'Reto no encontrado' });
+    }
+
+    // Obtener preguntas
+    const preguntas = await pool.query(
+      'SELECT id, pregunta, opciones, respuesta_correcta FROM preguntas_reto WHERE reto_id = $1 ORDER BY id',
+      [id]
+    );
+
+    const preguntasFormateadas = preguntas.rows.map(p => ({
+      id: p.id,
+      pregunta: p.pregunta,
+      opciones: Array.isArray(p.opciones) ? p.opciones : JSON.parse(p.opciones || '[]'),
+      respuesta_correcta: parseInt(p.respuesta_correcta)
+    }));
+
+    res.json({
+      ...reto.rows[0],
+      preguntas: preguntasFormateadas
+    });
+  } catch (error) {
+    console.error('Error al obtener reto:', error);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
 module.exports = {
   crearReto,
   getRetosActivos,
@@ -829,5 +1004,8 @@ module.exports = {
   getPreguntasReto,
   responderReto,
   verificarRespuesta,
-  getIntentosRestantes
+  getIntentosRestantes,
+  eliminarReto,
+  actualizarReto,
+  obtenerReto
 };

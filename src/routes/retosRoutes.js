@@ -10,7 +10,10 @@ const {
   getPreguntasReto,
   responderReto,
   verificarRespuesta,
-  getIntentosRestantes
+  getIntentosRestantes,
+  eliminarReto,
+  actualizarReto,
+  obtenerReto
 } = require('../controllers/retosController');
 
 /**
@@ -540,5 +543,14 @@ router.post('/:id/verificar', authenticateToken, verificarRespuesta);
 router.post('/:id/responder', authenticateToken, responderReto);
 
 router.post('/crear', authenticateToken, crearReto);
+
+// Obtener reto específico (para edición)
+router.get('/:id', authenticateToken, obtenerReto);
+
+// Actualizar reto
+router.put('/:id', authenticateToken, actualizarReto);
+
+// Eliminar reto
+router.delete('/:id', authenticateToken, eliminarReto);
 
 module.exports = router;

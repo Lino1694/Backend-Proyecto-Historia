@@ -114,4 +114,8 @@ async function seedLecciones() {
   }
 }
 
-seedLecciones();
+module.exports = { seedLecciones };
+
+if (require.main === module) {
+  seedLecciones()
+    .then(() => {
