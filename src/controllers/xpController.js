@@ -554,22 +554,20 @@ const obtenerProgresoTimeline = async (req, res) => {
     }
 
     // Mapeo de categorías de retos a períodos de la línea de tiempo
-    const timelinePeriods = [
-      { key: 'caral-ciudad', label: 'Caral', categoriaPattern: '%Caral%' },
-      { key: 'pre-inca', label: 'Pre-Inca', categoriaPattern: '%Pre-Inca%' },
-      { key: 'cultura-inca', label: 'Inca', categoriaPattern: '%Cultura Inca%' },
-      { key: 'virreinato', label: 'Virreinato', categoriaPattern: '%Virreinato%' },
-      { key: 'conquista', label: 'Conquista', categoriaPattern: '%Conquista%' },
+const timelinePeriods = [
+      { key: 'organizacion-virreinato', label: 'Organización Virreinato', categoriaPattern: '%Organización del Virreinato%' },
+      { key: 'reformas-borbonicas', label: 'Reformas Borbónicas', categoriaPattern: '%Reformas Borbónicas%' },
+      { key: 'rebeliones', label: 'Rebeliones', categoriaPattern: '%Rebeliones%' },
       { key: 'independencia', label: 'Independencia', categoriaPattern: '%Independencia%' },
+      { key: 'consolidacion', label: 'Consolidación', categoriaPattern: '%Consolidación%' },
     ];
 
-    // Mapeo de temas de lecciones a períodos de la línea de tiempo
-    const lessonTopics = [
-      { key: 'caral-ciudad', label: 'Caral', temaPattern: '%Caral%' },
-      { key: 'pre-inca', label: 'Pre-Inca', temaPattern: '%Pre-Inca%' },
-      { key: 'cultura-inca', label: 'Inca', temaPattern: '%Inca%' },
-      { key: 'virreinato', label: 'Virreinato', temaPattern: '%Virreinato%' },
+const lessonTopics = [
+      { key: 'organizacion-virreinato', label: 'Organización Virreinato', temaPattern: '%Organización del Virreinato%' },
+      { key: 'reformas-borbonicas', label: 'Reformas Borbónicas', temaPattern: '%Reformas Borbónicas%' },
+      { key: 'rebeliones', label: 'Rebeliones', temaPattern: '%Rebeliones%' },
       { key: 'independencia', label: 'Independencia', temaPattern: '%Independencia%' },
+      { key: 'consolidacion', label: 'Consolidación', temaPattern: '%Consolidación%' },
     ];
 
     const timelineProgress = {};

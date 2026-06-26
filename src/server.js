@@ -77,14 +77,16 @@ const startServer = async () => {
     console.log('\n📝 Ejecutando scripts de inicialización...');
 const seedScripts = [
       { path: './scripts/createTestUsers', fn: 'createTestUsers', name: 'createTestUsers' },
-      { path: './scripts/createCaralChallenges', fn: 'createCaralChallenges', name: 'createCaralChallenges' },
-      { path: './scripts/createInkaChallenges', fn: 'createInkaChallenges', name: 'createInkaChallenges' },
       { path: './scripts/createOrganizacionVirreinatoChallenges', fn: 'createOrganizacionVirreinatoChallenges', name: 'createOrganizacionVirreinatoChallenges' },
       { path: './scripts/createReformasBorbonicasChallenges', fn: 'createReformasBorbonicasChallenges', name: 'createReformasBorbonicasChallenges' },
       { path: './scripts/createRebelionesChallenges', fn: 'createRebelionesChallenges', name: 'createRebelionesChallenges' },
       { path: './scripts/createIndependenciaChallenges', fn: 'createIndependenciaChallenges', name: 'createIndependenciaChallenges' },
       { path: './scripts/createConsolidacionChallenges', fn: 'createConsolidacionChallenges', name: 'createConsolidacionChallenges' },
-      { path: './scripts/createAngamosChallenges', fn: 'createAngamosChallenges', name: 'createAngamosChallenges' }
+      { path: './scripts/createOrganizacionVirreinatoLecciones', fn: 'createOrganizacionVirreinatoLecciones', name: 'createOrganizacionVirreinatoLecciones' },
+      { path: './scripts/createReformasBorbonicasLecciones', fn: 'createReformasBorbonicasLecciones', name: 'createReformasBorbonicasLecciones' },
+      { path: './scripts/createRebelionesLecciones', fn: 'createRebelionesLecciones', name: 'createRebelionesLecciones' },
+      { path: './scripts/createIndependenciaLecciones', fn: 'createIndependenciaLecciones', name: 'createIndependenciaLecciones' },
+      { path: './scripts/createConsolidacionLecciones', fn: 'createConsolidacionLecciones', name: 'createConsolidacionLecciones' }
     ];
     
     for (const script of seedScripts) {
