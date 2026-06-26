@@ -215,35 +215,35 @@ const getRetosPorCategoria = async (req, res) => {
 
     const retos = await pool.query(retosQuery);
 
-    // Organizar por categorías
+    // Organizar por categorías (5 etapas cronológicas)
     const categorias = {
       "Avanzando en la Historia": {
-        "Cultura Inca": [],
-        "Caral - La primera Ciudad": [],
-        "El Virreinato en el Perú": [],
-        "La Independencia": [],
-        "La Conquista de Perú": [],
-        "La Batalla de Angamos": [],
-        "Retos Personalizados": []
+        "Organización del Virreinato": [],
+        "Reformas Borbónicas": [],
+        "Rebeliones": [],
+        "Independencia": [],
+        "Consolidación": []
       },
       "Otros": []
     };
 
-    retos.rows.forEach(reto => {
-      const categoria = reto.categoria;
-      if (categoria && categoria.startsWith("Avanzando en la Historia")) {
-        const subcategoria = categoria.replace("Avanzando en la Historia - ", "");
-        if (categorias["Avanzando en la Historia"][subcategoria]) {
-          categorias["Avanzando en la Historia"][subcategoria].push(reto);
-        } else {
-          // Si no existe la subcategoría, agregarla dinámicamente
-          categorias["Avanzando en la Historia"][subcategoria] = [reto];
-        }
-      } else {
-        // Retos sin categoría o de otras categorías
-        categorias["Otros"].push(reto);
-      }
-    });
+retos.rows.forEach(reto => {
+       const categoria = reto.categoria;
+       const retoConDificultad = {
+         ...reto,
+         dificultad: reto.dificultad || 'Intermedio'
+       };
+       if (categoria && categoria.startsWith("Avanzando en la Historia")) {
+         const subcategoria = categoria.replace("Avanzando en la Historia - ", "");
+         if (categorias["Avanzando en la Historia"][subcategoria]) {
+           categorias["Avanzando en la Historia"][subcategoria].push(retoConDificultad);
+         } else {
+           categorias["Avanzando en la Historia"][subcategoria] = [retoConDificultad];
+         }
+       } else {
+         categorias["Otros"].push(retoConDificultad);
+       }
+     });
 
     res.json(categorias);
   } catch (error) {

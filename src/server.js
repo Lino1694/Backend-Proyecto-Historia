@@ -75,14 +75,16 @@ const startServer = async () => {
 
     // Ejecutar scripts de inicialización de datos
     console.log('\n📝 Ejecutando scripts de inicialización...');
-    const seedScripts = [
+const seedScripts = [
+      { path: './scripts/createTestUsers', fn: 'createTestUsers', name: 'createTestUsers' },
       { path: './scripts/createCaralChallenges', fn: 'createCaralChallenges', name: 'createCaralChallenges' },
       { path: './scripts/createInkaChallenges', fn: 'createInkaChallenges', name: 'createInkaChallenges' },
-      { path: './scripts/createVirreinatoChallenges', fn: 'createVirreinatoChallenges', name: 'createVirreinatoChallenges' },
-      { path: './scripts/createConquistaChallenges', fn: 'createConquistaChallenges', name: 'createConquistaChallenges' },
+      { path: './scripts/createOrganizacionVirreinatoChallenges', fn: 'createOrganizacionVirreinatoChallenges', name: 'createOrganizacionVirreinatoChallenges' },
+      { path: './scripts/createReformasBorbonicasChallenges', fn: 'createReformasBorbonicasChallenges', name: 'createReformasBorbonicasChallenges' },
+      { path: './scripts/createRebelionesChallenges', fn: 'createRebelionesChallenges', name: 'createRebelionesChallenges' },
       { path: './scripts/createIndependenciaChallenges', fn: 'createIndependenciaChallenges', name: 'createIndependenciaChallenges' },
-      { path: './scripts/createAngamosChallenges', fn: 'createAngamosChallenges', name: 'createAngamosChallenges' },
-      { path: './scripts/updateInkaChallengesCategoria', fn: 'updateInkaChallengesCategoria', name: 'updateInkaChallengesCategoria' }
+      { path: './scripts/createConsolidacionChallenges', fn: 'createConsolidacionChallenges', name: 'createConsolidacionChallenges' },
+      { path: './scripts/createAngamosChallenges', fn: 'createAngamosChallenges', name: 'createAngamosChallenges' }
     ];
     
     for (const script of seedScripts) {
@@ -104,14 +106,7 @@ const startServer = async () => {
       }
     }
 
-    // Sembrar lecciones Inca
-    try {
-      const { seedLecciones } = require('./seedLeccionesInca');
-      await seedLecciones();
-      console.log(`  ✓ seedLeccionesInca`);
-    } catch (err) {
-      console.log(`  ⚠ seedLeccionesInca: ${err.message || 'Error'}`);
-    }
+
 
     console.log('📝 Scripts de inicialización completados\n');
 

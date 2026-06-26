@@ -13,9 +13,9 @@ router.post('/chat', async (req, res) => {
     }
 
     // Validate character
-    const allowedCharacters = ['inka', 'viceroyalty', 'caral', 'conquistador', 'independencia', 'republica'];
+    const allowedCharacters = ['auge_virreinal', 'rebeliones_indigenas', 'conspiraciones_criollas', 'campana_sur', 'consolidacion_norte'];
     if (!allowedCharacters.includes(character)) {
-      return res.status(400).json({ error: 'Invalid character. Allowed: inka, viceroyalty, caral, conquistador, independencia, republica' });
+      return res.status(400).json({ error: 'Invalid character. Allowed: auge_virreinal, rebeliones_indigenas, conspiraciones_criollas, campana_sur, consolidacion_norte' });
     }
 
     const response = await ollamaService.generateResponse(character, prompt);
